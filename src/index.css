@@ -1,0 +1,334 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* One Eleven - Premium Dark Enterprise Design System */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+@layer base {
+  :root {
+    /* Dark Premium Theme - Primary Mode */
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+
+    --card: 240 10% 5.5%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 10% 5.5%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 240 5% 12%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 5% 15%;
+    --muted-foreground: 240 5% 55%;
+
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 5% 18%;
+    --input: 240 5% 18%;
+    --ring: 160 84% 39%;
+
+    --radius: 0.75rem;
+
+    /* Extended Premium Palette */
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 98%;
+    
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 5%;
+    
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 98%;
+
+    /* Premium Gradients */
+    --gradient-premium: linear-gradient(135deg, hsl(160 84% 39%) 0%, hsl(180 60% 45%) 100%);
+    --gradient-gold: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(45 93% 58%) 100%);
+    --gradient-dark: linear-gradient(180deg, hsl(240 10% 5.5%) 0%, hsl(240 10% 3.9%) 100%);
+    --gradient-glass: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+    
+    /* Premium Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+    --shadow-glow: 0 0 20px rgba(16, 185, 129, 0.15);
+    --shadow-glow-gold: 0 0 20px rgba(245, 158, 11, 0.15);
+
+    /* Sidebar */
+    --sidebar-background: 240 10% 4.5%;
+    --sidebar-foreground: 240 5% 65%;
+    --sidebar-primary: 160 84% 39%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 5% 10%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 240 5% 12%;
+    --sidebar-ring: 160 84% 39%;
+
+    /* Chart Colors */
+    --chart-1: 160 84% 39%;
+    --chart-2: 180 60% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 217 91% 60%;
+    --chart-5: 280 70% 50%;
+  }
+
+  .dark {
+    /* Same as root since we're dark-first */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  /* Premium Card Styles */
+  .card-premium {
+    @apply bg-card border border-border rounded-xl;
+    background: var(--gradient-glass);
+    box-shadow: var(--shadow-md);
+  }
+
+  .card-premium:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: hsl(var(--border) / 0.8);
+  }
+
+  /* Glow Effects */
+  .glow-success {
+    box-shadow: var(--shadow-glow);
+  }
+
+  .glow-warning {
+    box-shadow: var(--shadow-glow-gold);
+  }
+
+  /* Glass Morphism */
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Premium Button Variants */
+  .btn-premium {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200;
+    background: var(--gradient-premium);
+    color: hsl(var(--primary-foreground));
+    box-shadow: var(--shadow-md), var(--shadow-glow);
+  }
+
+  .btn-premium:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg), var(--shadow-glow);
+  }
+
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200;
+    background: var(--gradient-gold);
+    color: hsl(var(--warning-foreground));
+    box-shadow: var(--shadow-md), var(--shadow-glow-gold);
+  }
+
+  .btn-gold:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg), var(--shadow-glow-gold);
+  }
+
+  /* Status Indicators */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-connected {
+    @apply bg-emerald-500;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  }
+
+  .status-disconnected {
+    @apply bg-red-500;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  }
+
+  .status-warning {
+    @apply bg-amber-500;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+  }
+
+  /* Kanban Styles */
+  .kanban-column {
+    @apply bg-secondary/50 rounded-xl p-3 min-h-[500px];
+    min-width: 280px;
+  }
+
+  .kanban-card {
+    @apply bg-card border border-border rounded-lg p-4 cursor-grab transition-all duration-200;
+  }
+
+  .kanban-card:hover {
+    @apply border-primary/50;
+    box-shadow: var(--shadow-glow);
+  }
+
+  .kanban-card:active {
+    @apply cursor-grabbing;
+  }
+
+  /* Chat Styles */
+  .chat-bubble-user {
+    @apply bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-4 py-2;
+  }
+
+  .chat-bubble-bot {
+    @apply bg-secondary text-secondary-foreground rounded-2xl rounded-bl-sm px-4 py-2;
+  }
+
+  /* Sidebar Navigation */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground transition-all duration-200;
+  }
+
+  .nav-item:hover {
+    @apply bg-secondary text-foreground;
+  }
+
+  .nav-item.active {
+    @apply bg-primary/10 text-primary;
+  }
+
+  /* Table Styles */
+  .table-premium th {
+    @apply text-xs uppercase tracking-wider text-muted-foreground font-medium bg-secondary/50;
+  }
+
+  .table-premium tr {
+    @apply border-b border-border/50 transition-colors;
+  }
+
+  .table-premium tr:hover {
+    @apply bg-secondary/30;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+
+  /* Animations */
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+    }
+    50% {
+      box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+    }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .skeleton-shimmer {
+    background: linear-gradient(90deg, 
+      hsl(var(--secondary)) 0%, 
+      hsl(var(--muted)) 50%, 
+      hsl(var(--secondary)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+@layer utilities {
+  .text-gradient-premium {
+    background: var(--gradient-premium);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-gold {
+    background: var(--gradient-gold);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-gradient-premium {
+    background: var(--gradient-premium);
+  }
+
+  .bg-gradient-gold {
+    background: var(--gradient-gold);
+  }
+
+  .bg-gradient-dark {
+    background: var(--gradient-dark);
+  }
+
+  .border-gradient {
+    border: 1px solid transparent;
+    background: linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box,
+                var(--gradient-premium) border-box;
+  }
+}
