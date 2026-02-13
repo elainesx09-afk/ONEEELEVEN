@@ -12,21 +12,20 @@ export default async function handler(req: any, res: any) {
   if (!auth) return;
 
   const sb = await supabaseAdmin();
-  const workspace_id = auth.workspace_id;
+  const client_id = auth.workspace_id;
 
-  // pega tudo e calcula (MVP simples, mas estável)
   const { data, error } = await sb
     .from("leads")
-    .select("stage")
-    .eq("workspace_id", workspace_id);
+    .select("status")
+    .eq("client_id", client_id);
 
   if (error) return fail(res, "OVERVIEW_FETCH_FAILED", 500, { details: error });
 
-  const stages = (data ?? []).map((x: any) => String(x.stage || "Novo"));
-  const count = (s: string) => stages.filter(v => v === s).length;
+  const statuses = (data ?? []).map((x: any) => String(x.status || "Novo"));
+  const count = (s: string) => statuses.filter(v => v === s).length;
 
   return ok(res, {
-    total_leads: stages.length,
+    total_leads: statuses.length,
     new_leads: count("Novo"),
     qualified: count("Qualificado"),
     scheduled: count("Agendado"),
