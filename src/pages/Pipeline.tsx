@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Clock, Star, MessageSquare, Calendar, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { getLeadsByWorkspace, Lead } from '@/data/demoData';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, type Lead } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 type PipelineStage = 'novo' | 'qualificando' | 'proposta' | 'follow-up' | 'ganhou' | 'perdido';
@@ -26,12 +27,40 @@ const stages: { id: PipelineStage; label: string; color: string }[] = [
 
 export default function Pipeline() {
   const { currentWorkspace } = useWorkspace();
-  const leads = getLeadsByWorkspace(currentWorkspace.id);
+  const qc = useQueryClient();
+
+  const leadsQuery = useQuery({
+    queryKey: ['leads', currentWorkspace.id],
+    queryFn: () => api.getLeads(),
+  });
+
+  const updateStage = useMutation({
+    mutationFn: ({ leadId, stage }: { leadId: string; stage: PipelineStage }) =>
+      api.updateLeadStage(leadId, stage),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+    },
+  });
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [draggedLead, setDraggedLead] = useState<string | null>(null);
-  const [leadsState, setLeadsState] = useState(leads);
 
-  const getLeadsByStage = (stage: PipelineStage) => leadsState.filter((l) => l.stage === stage);
+  const leadsState = useMemo(() => {
+    const raw = leadsQuery.data ?? [];
+    return raw.map((l: any) => ({
+      ...l,
+      name: l.name ?? l.full_name ?? l.nome ?? 'Lead',
+      phone: l.phone ?? l.number ?? l.whatsapp ?? '',
+      stage: (l.stage ?? 'novo') as PipelineStage,
+      score: typeof l.score === 'number' ? l.score : 50,
+      lastMessage: l.lastMessage ?? l.last_message ?? l.last_message_text ?? '',
+      nextAction: l.nextAction ?? l.next_action ?? '',
+      tags: Array.isArray(l.tags) ? l.tags : [],
+    })) as any[];
+  }, [leadsQuery.data]);
+
+  const getLeadsByStage = (stage: PipelineStage) =>
+    leadsState.filter((l) => (l.stage ?? 'novo') === stage);
 
   const handleDragStart = (leadId: string) => {
     setDraggedLead(leadId);
@@ -43,9 +72,7 @@ export default function Pipeline() {
 
   const handleDrop = (stage: PipelineStage) => {
     if (draggedLead) {
-      setLeadsState((prev) =>
-        prev.map((l) => (l.id === draggedLead ? { ...l, stage } : l))
-      );
+      updateStage.mutate({ leadId: draggedLead, stage });
       setDraggedLead(null);
     }
   };

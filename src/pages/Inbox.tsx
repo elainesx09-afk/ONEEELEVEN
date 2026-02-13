@@ -1,27 +1,75 @@
-import { useState } from 'react';
-import { Search, Filter, Send, Phone, UserPlus, ArrowRight, Image, Mic, MoreHorizontal } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Search, Send, Phone, UserPlus, Image, Mic, MoreHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { getConversationsByWorkspace, Conversation, Message } from '@/data/demoData';
 import { cn } from '@/lib/utils';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, type Lead, type Message } from '@/lib/api';
+
+type Conversation = {
+  id: string;
+  leadName: string;
+  leadPhone: string;
+  lastMessage: string;
+  lastMessageAt: string;
+  unread: number;
+  tags: string[];
+};
 
 export default function Inbox() {
-  const { currentWorkspace } = useWorkspace();
-  const conversations = getConversationsByWorkspace(currentWorkspace.id);
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(
-    conversations[0] || null
-  );
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const filteredConversations = conversations.filter(
-    (c) =>
-      c.leadName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const leadsQuery = useQuery({
+    queryKey: ['leads'],
+    queryFn: api.getLeads,
+  });
+
+  const conversations: Conversation[] = useMemo(() => {
+    const leads = (leadsQuery.data ?? []) as Lead[];
+    return leads.map((l: any) => ({
+      id: l.id,
+      leadName: (l.name ?? l.full_name ?? l.nome ?? 'Lead').toString(),
+      leadPhone: (l.phone ?? l.whatsapp ?? l.numero ?? '').toString(),
+      lastMessage: (l.last_message ?? l.lastMessage ?? '').toString(),
+      lastMessageAt: (l.last_message_at ?? l.updated_at ?? '').toString(),
+      unread: Number(l.unread ?? 0),
+      tags: Array.isArray(l.tags) ? l.tags : [],
+    }));
+  }, [leadsQuery.data]);
+
+  const selectedConversation = useMemo(() => {
+    const id = selected ?? conversations[0]?.id ?? null;
+    return conversations.find((c) => c.id === id) ?? null;
+  }, [conversations, selected]);
+
+  const filteredConversations = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(
+      (c) => c.leadName.toLowerCase().includes(q) || c.leadPhone.toLowerCase().includes(q) || c.lastMessage.toLowerCase().includes(q)
+    );
+  }, [conversations, searchQuery]);
+
+  const messagesQuery = useQuery({
+    queryKey: ['messages', selectedConversation?.id],
+    queryFn: () => api.getMessages(selectedConversation!.id),
+    enabled: !!selectedConversation?.id,
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: ({ leadId, text }: { leadId: string; text: string }) => api.sendMessage(leadId, text),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['messages', vars.leadId] });
+      qc.invalidateQueries({ queryKey: ['leads'] });
+    },
+  });
+
+  const messages: Message[] = (messagesQuery.data ?? []) as Message[];
 
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-6 animate-fade-in">
@@ -52,7 +100,7 @@ export default function Inbox() {
             {filteredConversations.map((conv) => (
               <div
                 key={conv.id}
-                onClick={() => setSelectedConversation(conv)}
+                onClick={() => setSelected(conv.id)}
                 className={cn(
                   'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors',
                   selectedConversation?.id === conv.id
@@ -63,7 +111,7 @@ export default function Inbox() {
                 <div className="relative">
                   <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center">
                     <span className="text-sm font-semibold text-foreground">
-                      {conv.leadName.split(' ').map((n) => n[0]).join('')}
+                      {conv.leadName.split(' ').slice(0, 2).map((n) => n[0]).join('')}
                     </span>
                   </div>
                   {conv.unread > 0 && (
@@ -76,10 +124,10 @@ export default function Inbox() {
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-foreground truncate">{conv.leadName}</span>
                     <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
-                      {conv.lastMessageAt}
+                      {conv.lastMessageAt ? new Date(conv.lastMessageAt).toLocaleString() : ''}
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground truncate">{conv.lastMessage}</p>
+                  <p className="text-sm text-muted-foreground truncate">{conv.lastMessage || '—'}</p>
                   <div className="flex gap-1 mt-1">
                     {conv.tags.slice(0, 2).map((tag) => (
                       <Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0 border-border text-muted-foreground">
@@ -90,6 +138,12 @@ export default function Inbox() {
                 </div>
               </div>
             ))}
+            {leadsQuery.isLoading && (
+              <div className="p-4 text-sm text-muted-foreground">Loading...</div>
+            )}
+            {!leadsQuery.isLoading && filteredConversations.length === 0 && (
+              <div className="p-4 text-sm text-muted-foreground">No conversations.</div>
+            )}
           </div>
         </ScrollArea>
       </div>
@@ -102,7 +156,7 @@ export default function Inbox() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <span className="text-sm font-semibold text-primary">
-                  {selectedConversation.leadName.split(' ').map((n) => n[0]).join('')}
+                  {selectedConversation.leadName.split(' ').slice(0, 2).map((n) => n[0]).join('')}
                 </span>
               </div>
               <div>
@@ -119,105 +173,81 @@ export default function Inbox() {
                 <UserPlus className="w-4 h-4 mr-2" />
                 Transfer
               </Button>
-              <Button variant="ghost" size="icon" className="text-muted-foreground">
+              <Button variant="ghost" size="sm" className="text-muted-foreground">
                 <MoreHorizontal className="w-4 h-4" />
               </Button>
             </div>
           </div>
 
-          {/* Quick Actions */}
-          <div className="px-4 py-2 border-b border-border flex gap-2 overflow-x-auto">
-            <Button variant="outline" size="sm" className="text-xs whitespace-nowrap border-border text-muted-foreground hover:text-foreground">
-              Transferir p/ humano
-            </Button>
-            <Button variant="outline" size="sm" className="text-xs whitespace-nowrap border-border text-muted-foreground hover:text-foreground">
-              Marcar como qualificado
-            </Button>
-            <Button variant="outline" size="sm" className="text-xs whitespace-nowrap border-border text-muted-foreground hover:text-foreground">
-              Agendar follow-up
-            </Button>
-            <Button variant="outline" size="sm" className="text-xs whitespace-nowrap border-border text-muted-foreground hover:text-foreground">
-              <ArrowRight className="w-3 h-3 mr-1" />
-              Mover no pipeline
-            </Button>
-          </div>
-
           {/* Messages */}
           <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4">
-              {selectedConversation.messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))}
+            <div className="space-y-3">
+              {messages.map((m) => {
+                const mine = (m.direction ?? 'out') !== 'in';
+                return (
+                  <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                    <div className={cn('max-w-[75%] rounded-2xl px-4 py-2 text-sm', mine ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground')}>
+                      <div>{(m.text ?? (m as any).content ?? '').toString()}</div>
+                      <div className={cn('mt-1 text-[10px] opacity-70', mine ? 'text-primary-foreground' : 'text-muted-foreground')}>
+                        {m.created_at ? new Date(m.created_at).toLocaleTimeString() : ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {messagesQuery.isLoading && (
+                <div className="text-sm text-muted-foreground">Loading messages...</div>
+              )}
+              {!messagesQuery.isLoading && messages.length === 0 && (
+                <div className="text-sm text-muted-foreground">No messages yet.</div>
+              )}
             </div>
           </ScrollArea>
 
-          {/* Input */}
+          {/* Composer */}
           <div className="p-4 border-t border-border">
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="text-muted-foreground">
-                <Image className="w-5 h-5" />
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Input
+                  placeholder="Type a message..."
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  className="bg-secondary border-border"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!messageInput.trim()) return;
+                      sendMutation.mutate({ leadId: selectedConversation.id, text: messageInput.trim() });
+                      setMessageInput('');
+                    }
+                  }}
+                />
+              </div>
+              <Button variant="outline" size="icon" className="border-border text-muted-foreground">
+                <Image className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="text-muted-foreground">
-                <Mic className="w-5 h-5" />
+              <Button variant="outline" size="icon" className="border-border text-muted-foreground">
+                <Mic className="w-4 h-4" />
               </Button>
-              <Input
-                placeholder="Type a message..."
-                className="flex-1 bg-secondary border-border"
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-              />
-              <Button className="btn-premium" size="icon">
-                <Send className="w-4 h-4" />
+              <Button
+                onClick={() => {
+                  if (!messageInput.trim()) return;
+                  sendMutation.mutate({ leadId: selectedConversation.id, text: messageInput.trim() });
+                  setMessageInput('');
+                }}
+                disabled={sendMutation.isPending}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                Send
               </Button>
             </div>
           </div>
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center bg-card border border-border rounded-xl">
-          <p className="text-muted-foreground">Select a conversation to start chatting</p>
+          <div className="text-muted-foreground">Select a conversation</div>
         </div>
       )}
-    </div>
-  );
-}
-
-function MessageBubble({ message }: { message: Message }) {
-  const isUser = message.sender === 'user';
-
-  return (
-    <div className={cn('flex', isUser ? 'justify-start' : 'justify-end')}>
-      <div
-        className={cn(
-          'max-w-[70%] rounded-2xl px-4 py-2',
-          isUser
-            ? 'bg-secondary text-foreground rounded-bl-sm'
-            : 'bg-primary text-primary-foreground rounded-br-sm'
-        )}
-      >
-        {message.type === 'audio' && (
-          <div className="flex items-center gap-2 py-1">
-            <Mic className="w-4 h-4" />
-            <div className="w-24 h-1 bg-current/30 rounded-full" />
-            <span className="text-xs">0:15</span>
-          </div>
-        )}
-        {message.type === 'image' && (
-          <div className="w-48 h-32 bg-secondary/50 rounded-lg flex items-center justify-center mb-2">
-            <Image className="w-8 h-8 text-muted-foreground" />
-          </div>
-        )}
-        {message.type === 'text' && <p className="text-sm">{message.content}</p>}
-        <div className="flex items-center justify-end gap-1 mt-1">
-          <span className={cn('text-[10px]', isUser ? 'text-muted-foreground' : 'text-primary-foreground/70')}>
-            {message.timestamp}
-          </span>
-          {!isUser && message.status && (
-            <span className="text-[10px] text-primary-foreground/70">
-              {message.status === 'read' ? '✓✓' : message.status === 'delivered' ? '✓✓' : '✓'}
-            </span>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
