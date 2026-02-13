@@ -3,9 +3,8 @@
 @tailwind utilities;
 
 /* One Eleven - Premium Dark Enterprise Design System */
-
-/* IMPORTANT: Removido @import do Google Fonts para evitar quebra no build do Vite.
-   Mantemos fontes via system-ui. Se quiser fontes externas, coloque <link> no index.html. */
+/* IMPORTANT: Sem @import no CSS para evitar quebra no build do Vite.
+   Se quiser fontes externas depois, coloque <link> no index.html. */
 
 @layer base {
   :root {
@@ -19,7 +18,7 @@
     --popover: 240 10% 5.6%;
     --popover-foreground: 0 0% 98%;
 
-    /* ✅ Verde mais forte (mais “neon premium”, sem ficar gritante) */
+    /* ✅ Verde mais forte */
     --primary: 160 95% 44%;
     --primary-foreground: 0 0% 98%;
 
@@ -35,10 +34,15 @@
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 6% 18%;
-    --input: 240 6% 18%;
+    /* ✅ Contornos verdes (global) */
+    --outline: 160 95% 44%;
+    --outline-soft: 160 95% 44% / 0.35;
 
-    /* ✅ ring mais forte também (foco/inputs) */
+    /* bordas/inputs com verde sutil */
+    --border: 160 95% 44% / 0.18;
+    --input: 160 95% 44% / 0.22;
+
+    /* ✅ ring mais forte (foco) */
     --ring: 160 95% 44%;
 
     --radius: 0.75rem;
@@ -57,14 +61,16 @@
     --gradient-premium: linear-gradient(135deg, hsl(160 95% 44%) 0%, hsl(178 70% 45%) 100%);
     --gradient-gold: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(45 93% 58%) 100%);
     --gradient-dark: linear-gradient(180deg, hsl(240 10% 5.6%) 0%, hsl(240 10% 3.2%) 100%);
-    --gradient-glass: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+    --gradient-glass: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.025) 100%);
 
-    /* ✅ Glow mais presente (verde mais forte) */
+    /* Premium Shadows */
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.30);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.35);
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -2px rgba(0, 0, 0, 0.35);
     --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.55), 0 10px 10px -5px rgba(0, 0, 0, 0.35);
-    --shadow-glow: 0 0 26px rgba(0, 255, 180, 0.20);
+
+    /* ✅ Glow mais presente */
+    --shadow-glow: 0 0 30px rgba(0, 255, 180, 0.22);
     --shadow-glow-gold: 0 0 20px rgba(245, 158, 11, 0.15);
 
     /* Sidebar */
@@ -74,7 +80,7 @@
     --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 240 6% 10%;
     --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 6% 12%;
+    --sidebar-border: 160 95% 44% / 0.16;
     --sidebar-ring: 160 95% 44%;
 
     /* Chart Colors */
@@ -99,7 +105,6 @@
     @apply scroll-smooth;
   }
 
-  /* ✅ Fundo “preto água” (reflexo) no SaaS todo */
   html,
   body {
     height: 100%;
@@ -108,10 +113,9 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
 
-    /* fonte segura */
     font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 
-    /* base do fundo (glossy) */
+    /* ✅ Fundo preto “vidro” (reflexo) no SaaS todo */
     background:
       radial-gradient(1200px 700px at 18% 8%, rgba(255,255,255,0.10), transparent 55%),
       radial-gradient(900px 650px at 82% 22%, rgba(0,255,200,0.08), transparent 60%),
@@ -121,7 +125,7 @@
     background-attachment: fixed;
   }
 
-  /* camada de “reflexo” (vidro) */
+  /* ✅ Vidro MAIS forte (sheen) */
   body::before {
     content: "";
     position: fixed;
@@ -129,16 +133,19 @@
     pointer-events: none;
     z-index: 0;
     background:
+      radial-gradient(900px 520px at 20% 8%, rgba(255,255,255,0.18), transparent 58%),
+      radial-gradient(760px 520px at 82% 22%, rgba(0,255,200,0.14), transparent 62%),
       linear-gradient(
-        115deg,
-        rgba(255,255,255,0.14) 0%,
-        rgba(255,255,255,0.04) 22%,
-        rgba(255,255,255,0.00) 40%,
-        rgba(255,255,255,0.06) 65%,
+        120deg,
+        rgba(255,255,255,0.22) 0%,
+        rgba(255,255,255,0.07) 18%,
+        rgba(255,255,255,0.00) 38%,
+        rgba(255,255,255,0.09) 62%,
         rgba(255,255,255,0.00) 100%
       );
-    opacity: 0.32;
+    opacity: 0.55;
     mix-blend-mode: screen;
+    filter: blur(0.2px);
   }
 
   /* garante que o app fica acima do brilho */
@@ -152,6 +159,12 @@
     font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
     @apply font-semibold tracking-tight;
   }
+
+  /* ✅ contorno verde no foco (global) */
+  :focus-visible {
+    outline: 2px solid hsl(160 95% 44% / 0.55);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
@@ -160,11 +173,12 @@
     @apply bg-card border border-border rounded-xl;
     background: var(--gradient-glass);
     box-shadow: var(--shadow-md);
+    border-color: hsl(160 95% 44% / 0.22);
   }
 
   .card-premium:hover {
     box-shadow: var(--shadow-lg);
-    border-color: hsl(var(--border) / 0.8);
+    border-color: hsl(160 95% 44% / 0.40);
   }
 
   /* Glow Effects */
@@ -178,9 +192,9 @@
 
   /* Glass Morphism */
   .glass {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(0, 255, 180, 0.18);
   }
 
   /* Premium Button Variants */
@@ -236,11 +250,13 @@
 
   .kanban-card {
     @apply bg-card border border-border rounded-lg p-4 cursor-grab transition-all duration-200;
+    border-color: hsl(160 95% 44% / 0.20);
   }
 
   .kanban-card:hover {
     @apply border-primary/50;
     box-shadow: var(--shadow-glow);
+    border-color: hsl(160 95% 44% / 0.42);
   }
 
   .kanban-card:active {
@@ -267,6 +283,7 @@
 
   .nav-item.active {
     @apply bg-primary/10 text-primary;
+    border: 1px solid hsl(160 95% 44% / 0.18);
   }
 
   /* Table Styles */
