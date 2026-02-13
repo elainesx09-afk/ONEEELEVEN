@@ -1,10 +1,10 @@
 // api/version.ts
-import { setCors, ok } from "./_lib/response";
+import { setCors, ok, fail } from "./_lib/response";
 
 export default function handler(req: any, res: any) {
   setCors(res);
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+  if (req.method !== "GET") return fail(res, "METHOD_NOT_ALLOWED", 405);
 
   return ok(res, {
     name: "one-eleven-api",
