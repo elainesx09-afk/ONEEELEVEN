@@ -24,6 +24,25 @@ export default async function handler(req: any, res: any) {
     return ok(res, data ?? []);
   }
 
+  if (req.method === "POST") {
+    let body: any = {};
+    try { body = req.body || {}; } catch { body = {}; }
+
+    const name = body?.name ?? null;
+    const phone = body?.phone ?? null;
+    const notes = body?.notes ?? null;
+    const stage = body?.stage ?? "Novo";
+
+    const { data, error } = await sb
+      .from("leads")
+      .insert({ workspace_id, name, phone, notes, stage })
+      .select("*")
+      .maybeSingle();
+
+    if (error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: error });
+    return ok(res, data, 201);
+  }
+
   if (req.method === "PATCH") {
     const leadId = req.query?.id;
     if (!leadId) return fail(res, "MISSING_LEAD_ID", 400);
