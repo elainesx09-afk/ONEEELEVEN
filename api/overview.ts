@@ -1,49 +1,36 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleOptions, setCors } from './_lib/cors.js';
-import { getTenant } from './_lib/tenantGuard.js';
-import { getSupabaseAdmin } from './_lib/supabaseAdmin.js';
+// api/overview.ts
+import { setCors, ok, fail } from "./_lib/response";
+import { requireAuth } from "./_lib/auth";
+import { supabaseAdmin } from "./_lib/supabaseAdmin";
 
-const LEADS_TABLE = process.env.LEADS_TABLE || 'leads';
-const MSG_TABLE = process.env.MESSAGES_TABLE || 'messages';
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (handleOptions(req, res)) return;
+export default async function handler(req: any, res: any) {
   setCors(res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
-  try {
-    const { workspaceId } = getTenant(req);
-    const supabase = getSupabaseAdmin();
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
 
-    const { data: leads, error: leadsErr } = await supabase
-      .from(LEADS_TABLE)
-      .select('id, stage')
-      .eq('workspace_id', workspaceId);
+  const sb = await supabaseAdmin();
+  const workspace_id = auth.workspace_id;
 
-    if (leadsErr) throw leadsErr;
+  // pega tudo e calcula (MVP simples, mas estável)
+  const { data, error } = await sb
+    .from("leads")
+    .select("stage")
+    .eq("workspace_id", workspace_id);
 
-    const stageCounts: Record<string, number> = {};
-    for (const l of leads || []) {
-      const st = (l as any).stage || 'sem_stage';
-      stageCounts[st] = (stageCounts[st] || 0) + 1;
-    }
+  if (error) return fail(res, "OVERVIEW_FETCH_FAILED", 500, { details: error });
 
-    const { count: messagesCount, error: msgErr } = await supabase
-      .from(MSG_TABLE)
-      .select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId);
+  const stages = (data ?? []).map((x: any) => String(x.stage || "Novo"));
+  const count = (s: string) => stages.filter(v => v === s).length;
 
-    if (msgErr) throw msgErr;
-
-    return res.status(200).json({
-      ok: true,
-      totals: {
-        leads: (leads || []).length,
-        messages: messagesCount || 0,
-      },
-      stageCounts,
-    });
-  } catch (e: any) {
-    const status = e?.statusCode || 500;
-    return res.status(status).json({ ok: false, error: e?.message || 'Server error' });
-  }
+  return ok(res, {
+    total_leads: stages.length,
+    new_leads: count("Novo"),
+    qualified: count("Qualificado"),
+    scheduled: count("Agendado"),
+    closed: count("Fechado"),
+    lost: count("Perdido"),
+  });
 }
