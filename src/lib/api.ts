@@ -1,74 +1,163 @@
+// src/lib/api.ts
+// Cliente único de API para o front (Vite). Sempre envia headers multi-tenant.
+
+export type LeadStage =
+  | "Novo"
+  | "Em atendimento"
+  | "Qualificado"
+  | "Agendado"
+  | "Fechado"
+  | "Perdido";
+
 export type Lead = {
   id: string;
+  workspace_id: string;
   name?: string | null;
   phone?: string | null;
-  stage?: string | null;
+  stage: LeadStage;
+  notes?: string | null;
   created_at?: string;
-  [k: string]: any;
+  updated_at?: string;
 };
+
+export type MessageDirection = "in" | "out";
 
 export type Message = {
   id: string;
+  workspace_id: string;
   lead_id: string;
-  direction?: 'in' | 'out' | string;
-  text?: string | null;
+  direction: MessageDirection;
+  body: string;
   created_at?: string;
-  [k: string]: any;
 };
 
-function apiBase() {
-  const b = import.meta.env.VITE_API_BASE_URL;
-  return b ? String(b).replace(/\/$/, '') : '';
+export type Overview = {
+  total_leads: number;
+  new_leads: number;
+  qualified: number;
+  scheduled: number;
+  closed: number;
+  lost: number;
+};
+
+type ApiError = {
+  ok: false;
+  error: string;
+  debugId?: string;
+  details?: unknown;
+};
+
+type ApiOk<T> = {
+  ok: true;
+  data: T;
+};
+
+type ApiResult<T> = ApiOk<T> | ApiError;
+
+function getBaseUrl() {
+  const base = (import.meta as any).env?.VITE_API_BASE_URL || "";
+  return String(base || "").replace(/\/$/, "");
 }
 
-function headers() {
-  const token = import.meta.env.VITE_API_TOKEN;
-  const workspaceId = import.meta.env.VITE_WORKSPACE_ID;
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) h['x-api-token'] = String(token);
-  if (workspaceId) h['workspace_id'] = String(workspaceId);
+function getHeaders(extra?: Record<string, string>) {
+  const token = String((import.meta as any).env?.VITE_API_TOKEN || "");
+  const workspaceId = String((import.meta as any).env?.VITE_WORKSPACE_ID || "");
+
+  const h: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(token ? { "x-api-token": token } : {}),
+    ...(workspaceId ? { workspace_id: workspaceId } : {}),
+    ...(extra || {}),
+  };
+
   return h;
 }
 
-async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const url = `${apiBase()}${path}`;
-  const res = await fetch(url, {
-    ...opts,
-    headers: { ...headers(), ...(opts.headers || {}) },
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json && json.ok === false)) {
-    throw new Error(json?.error || `HTTP ${res.status}`);
+async function request<T>(
+  path: string,
+  init?: RequestInit
+): Promise<ApiResult<T>> {
+  const base = getBaseUrl();
+  const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+
+  try {
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        ...getHeaders(),
+        ...(init?.headers || {}),
+      },
+    });
+
+    // Sempre tenta ler texto primeiro (pra não quebrar se vier HTML)
+    const text = await res.text();
+    let json: any = null;
+
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          json?.error ||
+          `HTTP_${res.status}`,
+        debugId: json?.debugId,
+        details: json ?? text,
+      };
+    }
+
+    // padrões aceitos:
+    // 1) { ok:true, data: ... }
+    // 2) retorno direto (array/objeto)
+    if (json && typeof json === "object" && "ok" in json && "data" in json) {
+      return json as ApiOk<T>;
+    }
+
+    return { ok: true, data: (json ?? (text as any)) as T };
+  } catch (e: any) {
+    return {
+      ok: false,
+      error: "NETWORK_ERROR",
+      details: String(e?.message || e),
+    };
   }
-  return json;
 }
 
-export async function fetchOverview() {
-  return http<{ ok: true; totals: { leads: number; messages: number }; stageCounts: Record<string, number> }>('/api/overview');
-}
+// ✅ Export exigido pelo Inbox.tsx
+export const api = {
+  async version() {
+    return request<any>("/api/version");
+  },
 
-export async function fetchLeads() {
-  const r = await http<{ ok: true; leads: Lead[] }>('/api/leads');
-  return r.leads;
-}
+  async overview() {
+    return request<Overview>("/api/overview");
+  },
 
-export async function updateLeadStage(leadId: string, stage: string) {
-  const r = await http<{ ok: true; lead: Lead }>('/api/leads', {
-    method: 'PATCH',
-    body: JSON.stringify({ lead_id: leadId, stage }),
-  });
-  return r.lead;
-}
+  async leads() {
+    return request<Lead[]>("/api/leads");
+  },
 
-export async function fetchMessages(leadId: string) {
-  const r = await http<{ ok: true; messages: Message[] }>(`/api/messages?lead_id=${encodeURIComponent(leadId)}`);
-  return r.messages;
-}
+  async updateLeadStage(leadId: string, stage: LeadStage) {
+    return request<Lead>(`/api/leads?id=${encodeURIComponent(leadId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ stage }),
+    });
+  },
 
-export async function sendMessage(leadId: string, text: string) {
-  const r = await http<{ ok: true; message: Message }>('/api/messages', {
-    method: 'POST',
-    body: JSON.stringify({ lead_id: leadId, text }),
-  });
-  return r.message;
-}
+  async messages(leadId: string) {
+    return request<Message[]>(
+      `/api/messages?lead_id=${encodeURIComponent(leadId)}`
+    );
+  },
+
+  async sendMessage(leadId: string, body: string) {
+    return request<Message>("/api/messages", {
+      method: "POST",
+      body: JSON.stringify({ lead_id: leadId, body }),
+    });
+  },
+};
