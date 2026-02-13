@@ -1,63 +1,57 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleOptions, setCors } from './_lib/cors.js';
-import { getTenant } from './_lib/tenantGuard.js';
-import { getSupabaseAdmin } from './_lib/supabaseAdmin.js';
+// api/messages.ts
+import { setCors, ok, fail } from "./_lib/response";
+import { requireAuth } from "./_lib/auth";
+import { supabaseAdmin } from "./_lib/supabaseAdmin";
 
-const TABLE = process.env.MESSAGES_TABLE || 'messages';
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (handleOptions(req, res)) return;
+export default async function handler(req: any, res: any) {
   setCors(res);
+  if (req.method === "OPTIONS") return res.status(204).end();
 
-  try {
-    const { workspaceId } = getTenant(req);
-    const supabase = getSupabaseAdmin();
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
 
-    if (req.method === 'GET') {
-      const leadId = (req.query.lead_id || req.query.leadId) as string | undefined;
-      if (!leadId) return res.status(400).json({ ok: false, error: 'lead_id is required' });
+  const sb = await supabaseAdmin();
+  const workspace_id = auth.workspace_id;
 
-      const { data, error } = await supabase
-        .from(TABLE)
-        .select('*')
-        .eq('workspace_id', workspaceId)
-        .eq('lead_id', leadId)
-        .order('created_at', { ascending: true });
+  if (req.method === "GET") {
+    const lead_id = req.query?.lead_id;
+    if (!lead_id) return fail(res, "MISSING_LEAD_ID", 400);
 
-      if (error) throw error;
-      return res.status(200).json({ ok: true, messages: data || [] });
-    }
+    const { data, error } = await sb
+      .from("messages")
+      .select("*")
+      .eq("workspace_id", workspace_id)
+      .eq("lead_id", lead_id)
+      .order("created_at", { ascending: true });
 
-    if (req.method === 'POST') {
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      const leadId = body?.lead_id || body?.leadId;
-      const text = body?.text || body?.content;
-      const direction = body?.direction || 'out';
-
-      if (!leadId || !text) {
-        return res.status(400).json({ ok: false, error: 'lead_id and text are required' });
-      }
-
-      const insertRow: any = {
-        workspace_id: workspaceId,
-        lead_id: leadId,
-        direction,
-        text,
-      };
-
-      const { data, error } = await supabase
-        .from(TABLE)
-        .insert(insertRow)
-        .select('*')
-        .single();
-
-      if (error) throw error;
-      return res.status(200).json({ ok: true, message: data });
-    }
-
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  } catch (e: any) {
-    const status = e?.statusCode || 500;
-    return res.status(status).json({ ok: false, error: e?.message || 'Server error' });
+    if (error) return fail(res, "MESSAGES_FETCH_FAILED", 500, { details: error });
+    return ok(res, data ?? []);
   }
+
+  if (req.method === "POST") {
+    let body: any = {};
+    try { body = req.body || {}; } catch { body = {}; }
+
+    const lead_id = body?.lead_id;
+    const text = body?.body;
+
+    if (!lead_id) return fail(res, "MISSING_LEAD_ID", 400);
+    if (!text || typeof text !== "string") return fail(res, "MISSING_BODY", 400);
+
+    const { data, error } = await sb
+      .from("messages")
+      .insert({
+        workspace_id,
+        lead_id,
+        direction: "out",
+        body: text,
+      })
+      .select("*")
+      .maybeSingle();
+
+    if (error) return fail(res, "MESSAGE_INSERT_FAILED", 500, { details: error });
+    return ok(res, data);
+  }
+
+  return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 }
