@@ -1,53 +1,52 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleOptions, setCors } from './_lib/cors.js';
-import { getTenant } from './_lib/tenantGuard.js';
-import { getSupabaseAdmin } from './_lib/supabaseAdmin.js';
+// api/leads.ts
+import { setCors, ok, fail } from "./_lib/response";
+import { requireAuth } from "./_lib/auth";
+import { supabaseAdmin } from "./_lib/supabaseAdmin";
 
-const TABLE = process.env.LEADS_TABLE || 'leads';
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (handleOptions(req, res)) return;
+export default async function handler(req: any, res: any) {
   setCors(res);
+  if (req.method === "OPTIONS") return res.status(204).end();
 
-  try {
-    const { workspaceId } = getTenant(req);
-    const supabase = getSupabaseAdmin();
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
 
-    if (req.method === 'GET') {
-      const { data, error } = await supabase
-        .from(TABLE)
-        .select('*')
-        .eq('workspace_id', workspaceId)
-        .order('created_at', { ascending: false });
+  const sb = await supabaseAdmin();
+  const workspace_id = auth.workspace_id;
 
-      if (error) throw error;
-      return res.status(200).json({ ok: true, leads: data || [] });
-    }
+  if (req.method === "GET") {
+    const { data, error } = await sb
+      .from("leads")
+      .select("*")
+      .eq("workspace_id", workspace_id)
+      .order("created_at", { ascending: false });
 
-    if (req.method === 'PATCH') {
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      const leadId = body?.lead_id || body?.id;
-      const stage = body?.stage;
-
-      if (!leadId || !stage) {
-        return res.status(400).json({ ok: false, error: 'lead_id and stage are required' });
-      }
-
-      const { data, error } = await supabase
-        .from(TABLE)
-        .update({ stage })
-        .eq('workspace_id', workspaceId)
-        .eq('id', leadId)
-        .select('*')
-        .single();
-
-      if (error) throw error;
-      return res.status(200).json({ ok: true, lead: data });
-    }
-
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  } catch (e: any) {
-    const status = e?.statusCode || 500;
-    return res.status(status).json({ ok: false, error: e?.message || 'Server error' });
+    if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
+    return ok(res, data ?? []);
   }
+
+  if (req.method === "PATCH") {
+    const leadId = req.query?.id;
+    if (!leadId) return fail(res, "MISSING_LEAD_ID", 400);
+
+    let body: any = {};
+    try { body = req.body || {}; } catch { body = {}; }
+
+    const stage = body?.stage;
+    if (!stage) return fail(res, "MISSING_STAGE", 400);
+
+    const { data, error } = await sb
+      .from("leads")
+      .update({ stage })
+      .eq("id", leadId)
+      .eq("workspace_id", workspace_id)
+      .select("*")
+      .maybeSingle();
+
+    if (error) return fail(res, "LEAD_UPDATE_FAILED", 500, { details: error });
+    if (!data) return fail(res, "LEAD_NOT_FOUND", 404);
+
+    return ok(res, data);
+  }
+
+  return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 }
