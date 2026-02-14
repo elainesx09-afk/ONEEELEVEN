@@ -15,7 +15,14 @@ export type Lead = {
   name?: string | null;
   phone?: string | null;
   stage: LeadStage;
+  status?: string | null; // alguns endpoints retornam status também
   notes?: string | null;
+  tags?: any;
+  score?: number | null;
+  source?: string | null;
+  last_message?: string | null;
+  last_message_at?: string | null;
+  responsible?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -32,12 +39,11 @@ export type Message = {
 };
 
 export type Overview = {
-  total_leads: number;
-  new_leads: number;
-  qualified: number;
-  scheduled: number;
-  closed: number;
-  lost: number;
+  total_messages: number;
+  hot_leads: number;
+  conversion_rate: number;
+  followup_conversions: number;
+  roi_estimated: number;
 };
 
 type ApiError = {
@@ -50,6 +56,7 @@ type ApiError = {
 type ApiOk<T> = {
   ok: true;
   data: T;
+  debugId?: string;
 };
 
 type ApiResult<T> = ApiOk<T> | ApiError;
@@ -73,10 +80,14 @@ function getHeaders(extra?: Record<string, string>) {
   return h;
 }
 
-async function request<T>(
-  path: string,
-  init?: RequestInit
-): Promise<ApiResult<T>> {
+function pickDetails(json: any, text: string) {
+  // seu backend agora usa fail(..., { details }) mas embrulha em meta
+  if (json?.meta?.details !== undefined) return json.meta.details;
+  if (json?.details !== undefined) return json.details;
+  return json ?? text;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   const base = getBaseUrl();
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
 
@@ -89,7 +100,6 @@ async function request<T>(
       },
     });
 
-    // Sempre tenta ler texto primeiro (pra não quebrar se vier HTML)
     const text = await res.text();
     let json: any = null;
 
@@ -102,11 +112,9 @@ async function request<T>(
     if (!res.ok) {
       return {
         ok: false,
-        error:
-          json?.error ||
-          `HTTP_${res.status}`,
+        error: json?.error || `HTTP_${res.status}`,
         debugId: json?.debugId,
-        details: json ?? text,
+        details: pickDetails(json, text),
       };
     }
 
@@ -127,7 +135,7 @@ async function request<T>(
   }
 }
 
-// ✅ Export exigido pelo Inbox.tsx
+// ✅ Export exigido por páginas (Inbox.tsx importa { api, type Lead, type Message })
 export const api = {
   async version() {
     return request<any>("/api/version");
@@ -141,6 +149,23 @@ export const api = {
     return request<Lead[]>("/api/leads");
   },
 
+  async createLead(payload: {
+    name: string;
+    phone: string;
+    notes?: string | null;
+    stage?: LeadStage;
+    status?: LeadStage;
+    tags?: any;
+    score?: number | null;
+    source?: string | null;
+  }) {
+    // backend aceita stage/status e normaliza para status
+    return request<Lead>("/api/leads", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
   async updateLeadStage(leadId: string, stage: LeadStage) {
     return request<Lead>(`/api/leads?id=${encodeURIComponent(leadId)}`, {
       method: "PATCH",
@@ -149,9 +174,7 @@ export const api = {
   },
 
   async messages(leadId: string) {
-    return request<Message[]>(
-      `/api/messages?lead_id=${encodeURIComponent(leadId)}`
-    );
+    return request<Message[]>(`/api/messages?lead_id=${encodeURIComponent(leadId)}`);
   },
 
   async sendMessage(leadId: string, body: string) {
