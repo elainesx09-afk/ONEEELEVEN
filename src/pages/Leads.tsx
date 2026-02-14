@@ -1,12 +1,11 @@
-import { useState } from 'react';
-import { Search, Filter, MoreHorizontal, Phone, Mail, Star, Clock, ChevronDown } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Search, MoreHorizontal, Phone, Clock, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTable } from '@/components/ui/data-table';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
-import { getLeadsByWorkspace, Lead } from '@/data/demoData';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,8 +20,28 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
-const stageColors: Record<Lead['stage'], string> = {
+// ===== Types compatíveis com API (/api/leads retorna stage + status + campos do db)
+type Lead = {
+  id: string;
+  name: string;
+  phone: string;
+  stage?: string; // "Novo" | "Em atendimento" | ...
+  status?: string;
+  source?: string | null;
+  score?: number | null;
+  last_message?: string | null;
+  last_message_at?: string | null;
+  responsible?: string | null;
+  tags?: string[] | null;
+  created_at?: string;
+};
+
+type StageKey = 'novo' | 'qualificando' | 'proposta' | 'follow-up' | 'ganhou' | 'perdido';
+
+const stageColors: Record<StageKey, string> = {
   novo: 'bg-info/10 text-info border-info/30',
   qualificando: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
   proposta: 'bg-warning/10 text-warning border-warning/30',
@@ -31,7 +50,7 @@ const stageColors: Record<Lead['stage'], string> = {
   perdido: 'bg-destructive/10 text-destructive border-destructive/30',
 };
 
-const stageLabels: Record<Lead['stage'], string> = {
+const stageLabels: Record<StageKey, string> = {
   novo: 'Novo',
   qualificando: 'Qualificando',
   proposta: 'Proposta',
@@ -40,33 +59,99 @@ const stageLabels: Record<Lead['stage'], string> = {
   perdido: 'Perdido',
 };
 
-export default function Leads() {
-  const { currentWorkspace } = useWorkspace();
-  const allLeads = getLeadsByWorkspace(currentWorkspace.id);
+// Mapeia estágios reais do backend para os labels que o UI já usa
+function toStageKey(stage?: string | null): StageKey {
+  const s = String(stage || '').trim().toLowerCase();
+
+  // pipeline real (API)
+  if (s === 'novo') return 'novo';
+  if (s.includes('atendimento')) return 'qualificando';
+  if (s === 'qualificado' || s.includes('qualific')) return 'qualificando';
+  if (s === 'agendado') return 'proposta';
+  if (s === 'fechado' || s === 'ganhou') return 'ganhou';
+  if (s === 'perdido') return 'perdido';
+
+  // fallback
+  return 'novo';
+}
+
+function initials(name: string) {
+  return (name || 'Lead')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0]?.toUpperCase())
+    .join('') || 'L';
+}
+
+export default function LeadsPage() {
+  const qc = useQueryClient();
+  const { currentWorkspace } = useWorkspace(); // mantém UI (não muda visual)
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
 
-  const filteredLeads = allLeads.filter((lead) => {
-    const matchesSearch =
-      lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      lead.phone.includes(searchQuery);
-    const matchesStage = stageFilter === 'all' || lead.stage === stageFilter;
-    return matchesSearch && matchesStage;
+  // UI: formulário simples “Add lead” sem modal (zero risco)
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+
+  const leadsQuery = useQuery({
+    queryKey: ['leads'],
+    queryFn: async () => {
+      const r = await api.leads();
+      if (!r.ok) return [] as Lead[];
+      return (r.data ?? []) as Lead[];
+    },
+    staleTime: 10_000,
+    retry: 1,
   });
 
+  const createLead = useMutation({
+    mutationFn: async ({ name, phone }: { name: string; phone: string }) => {
+      const payload = {
+        name,
+        phone,
+        // mantém compat com backend: ele aceita stage/status e normaliza
+        stage: 'Novo',
+      };
+      const r = await api.createLead(payload as any);
+      if (!r.ok) throw new Error(r.error);
+      return r.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+      setShowAdd(false);
+      setNewName('');
+      setNewPhone('');
+    },
+  });
+
+  const allLeads = (leadsQuery.data ?? []) as Lead[];
+
+  const filteredLeads = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return allLeads.filter((lead) => {
+      const name = String(lead.name ?? '').toLowerCase();
+      const phone = String(lead.phone ?? '');
+      const matchesSearch = !q || name.includes(q) || phone.includes(q);
+
+      const key = toStageKey(lead.stage ?? lead.status ?? 'Novo');
+      const matchesStage = stageFilter === 'all' || key === stageFilter;
+
+      return matchesSearch && matchesStage;
+    });
+  }, [allLeads, searchQuery, stageFilter]);
+
   const toggleSelectAll = () => {
-    if (selectedLeads.length === filteredLeads.length) {
-      setSelectedLeads([]);
-    } else {
-      setSelectedLeads(filteredLeads.map((l) => l.id));
-    }
+    if (selectedLeads.length === filteredLeads.length) setSelectedLeads([]);
+    else setSelectedLeads(filteredLeads.map((l) => l.id));
   };
 
   const toggleSelect = (id: string) => {
-    setSelectedLeads((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    );
+    setSelectedLeads((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
 
   const columns = [
@@ -80,10 +165,7 @@ export default function Leads() {
       ) as any,
       className: 'w-12',
       render: (item: Lead) => (
-        <Checkbox
-          checked={selectedLeads.includes(item.id)}
-          onCheckedChange={() => toggleSelect(item.id)}
-        />
+        <Checkbox checked={selectedLeads.includes(item.id)} onCheckedChange={() => toggleSelect(item.id)} />
       ),
     },
     {
@@ -92,15 +174,13 @@ export default function Leads() {
       render: (item: Lead) => (
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary">
-              {item.name.split(' ').map((n) => n[0]).join('')}
-            </span>
+            <span className="text-sm font-semibold text-primary">{initials(String(item.name || 'Lead'))}</span>
           </div>
           <div>
-            <div className="font-medium text-foreground">{item.name}</div>
+            <div className="font-medium text-foreground">{item.name || '—'}</div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Phone className="w-3 h-3" />
-              {item.phone}
+              {item.phone || '—'}
             </div>
           </div>
         </div>
@@ -109,44 +189,50 @@ export default function Leads() {
     {
       key: 'stage',
       header: 'Stage',
-      render: (item: Lead) => (
-        <Badge variant="outline" className={cn('border', stageColors[item.stage])}>
-          {stageLabels[item.stage]}
-        </Badge>
-      ),
+      render: (item: Lead) => {
+        const k = toStageKey(item.stage ?? item.status ?? 'Novo');
+        return (
+          <Badge variant="outline" className={cn('border', stageColors[k])}>
+            {stageLabels[k]}
+          </Badge>
+        );
+      },
     },
     {
       key: 'source',
       header: 'Source',
-      render: (item: Lead) => <span className="text-muted-foreground text-sm">{item.source}</span>,
+      render: (item: Lead) => <span className="text-muted-foreground text-sm">{item.source || '-'}</span>,
     },
     {
       key: 'score',
       header: 'Score',
-      render: (item: Lead) => (
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-2 bg-secondary rounded-full overflow-hidden">
-            <div
-              className={cn(
-                'h-full rounded-full transition-all',
-                item.score >= 80 ? 'bg-success' : item.score >= 50 ? 'bg-warning' : 'bg-destructive'
-              )}
-              style={{ width: `${item.score}%` }}
-            />
+      render: (item: Lead) => {
+        const score = Number(item.score ?? 0);
+        return (
+          <div className="flex items-center gap-2">
+            <div className="w-16 h-2 bg-secondary rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all',
+                  score >= 80 ? 'bg-success' : score >= 50 ? 'bg-warning' : 'bg-destructive'
+                )}
+                style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+              />
+            </div>
+            <span className="text-sm font-medium text-foreground">{score}</span>
           </div>
-          <span className="text-sm font-medium text-foreground">{item.score}</span>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'lastMessage',
       header: 'Last Message',
       render: (item: Lead) => (
         <div className="max-w-[200px]">
-          <p className="text-sm text-foreground truncate">{item.lastMessage}</p>
+          <p className="text-sm text-foreground truncate">{item.last_message || '—'}</p>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="w-3 h-3" />
-            {item.lastMessageAt}
+            {item.last_message_at ? new Date(item.last_message_at).toLocaleString() : '—'}
           </div>
         </div>
       ),
@@ -154,15 +240,13 @@ export default function Leads() {
     {
       key: 'responsible',
       header: 'Responsible',
-      render: (item: Lead) => (
-        <span className="text-sm text-muted-foreground">{item.responsible || '-'}</span>
-      ),
+      render: (item: Lead) => <span className="text-sm text-muted-foreground">{item.responsible || '-'}</span>,
     },
     {
       key: 'actions',
       header: '',
       className: 'w-12',
-      render: (item: Lead) => (
+      render: () => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="text-muted-foreground">
@@ -190,7 +274,49 @@ export default function Leads() {
             {filteredLeads.length} leads encontrados
           </p>
         </div>
+
+        {/* Add Lead (sem mudar layout: só um botão) */}
+        <Button onClick={() => setShowAdd((v) => !v)} className="gap-2">
+          <Plus className="w-4 h-4" />
+          Add Lead
+        </Button>
       </div>
+
+      {/* Add Lead Inline Form (zero risco) */}
+      {showAdd && (
+        <div className="flex flex-wrap items-center gap-3 p-4 bg-card border border-border rounded-xl">
+          <Input
+            placeholder="Name"
+            className="bg-secondary border-border max-w-sm"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <Input
+            placeholder="Phone"
+            className="bg-secondary border-border max-w-sm"
+            value={newPhone}
+            onChange={(e) => setNewPhone(e.target.value)}
+          />
+          <Button
+            onClick={() => {
+              const name = newName.trim();
+              const phone = newPhone.trim();
+              if (!name || !phone) return;
+              createLead.mutate({ name, phone });
+            }}
+            disabled={createLead.isPending}
+          >
+            {createLead.isPending ? 'Saving...' : 'Save'}
+          </Button>
+          <Button variant="outline" className="border-border text-muted-foreground" onClick={() => setShowAdd(false)}>
+            Cancel
+          </Button>
+
+          <div className="text-xs text-muted-foreground ml-auto">
+            Workspace: <span className="text-foreground">{currentWorkspace?.name}</span>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-4">
@@ -203,6 +329,7 @@ export default function Leads() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
+
         <Select value={stageFilter} onValueChange={setStageFilter}>
           <SelectTrigger className="w-[180px] bg-secondary border-border">
             <SelectValue placeholder="Filter by stage" />
@@ -218,7 +345,7 @@ export default function Leads() {
           </SelectContent>
         </Select>
 
-        {/* Bulk Actions */}
+        {/* Bulk Actions (mantido) */}
         {selectedLeads.length > 0 && (
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-sm text-muted-foreground">{selectedLeads.length} selected</span>
@@ -237,6 +364,16 @@ export default function Leads() {
 
       {/* Table */}
       <DataTable columns={columns} data={filteredLeads} keyField="id" />
+
+      {/* Loading / error (discreto) */}
+      {leadsQuery.isLoading && (
+        <div className="text-sm text-muted-foreground">Loading...</div>
+      )}
+      {leadsQuery.isError && (
+        <div className="text-sm text-destructive">
+          Failed to load leads. Check /api/leads (headers).
+        </div>
+      )}
     </div>
   );
 }
