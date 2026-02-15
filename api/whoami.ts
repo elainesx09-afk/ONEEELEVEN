@@ -1,6 +1,6 @@
 // api/whoami.ts
-import { setCors, ok, fail } from "./_lib/response";
-import { requireAuth } from "./_lib/auth";
+import { setCors, ok, fail } from "./_lib/response.ts";
+import { requireAuth } from "./_lib/auth.ts";
 
 export default async function handler(req: any, res: any) {
   setCors(res);
