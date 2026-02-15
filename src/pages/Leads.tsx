@@ -23,20 +23,17 @@ import { cn } from '@/lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-// ===== Types compatíveis com API (/api/leads retorna stage + status + campos do db)
 type Lead = {
   id: string;
-  name: string;
-  phone: string;
-  stage?: string; // "Novo" | "Em atendimento" | ...
+  name?: string | null;
+  phone?: string | null;
+  stage?: string;
   status?: string;
   source?: string | null;
   score?: number | null;
   last_message?: string | null;
   last_message_at?: string | null;
   responsible?: string | null;
-  tags?: string[] | null;
-  created_at?: string;
 };
 
 type StageKey = 'novo' | 'qualificando' | 'proposta' | 'follow-up' | 'ganhou' | 'perdido';
@@ -59,19 +56,14 @@ const stageLabels: Record<StageKey, string> = {
   perdido: 'Perdido',
 };
 
-// Mapeia estágios reais do backend para os labels que o UI já usa
 function toStageKey(stage?: string | null): StageKey {
   const s = String(stage || '').trim().toLowerCase();
-
-  // pipeline real (API)
   if (s === 'novo') return 'novo';
   if (s.includes('atendimento')) return 'qualificando';
   if (s === 'qualificado' || s.includes('qualific')) return 'qualificando';
   if (s === 'agendado') return 'proposta';
   if (s === 'fechado' || s === 'ganhou') return 'ganhou';
   if (s === 'perdido') return 'perdido';
-
-  // fallback
   return 'novo';
 }
 
@@ -87,45 +79,57 @@ function initials(name: string) {
 
 export default function LeadsPage() {
   const qc = useQueryClient();
-  const { currentWorkspace } = useWorkspace(); // mantém UI (não muda visual)
+  const { currentWorkspace } = useWorkspace();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
 
-  // UI: formulário simples “Add lead” sem modal (zero risco)
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
+
+  // ✅ erro visível na UI
+  const [saveError, setSaveError] = useState<string>('');
 
   const leadsQuery = useQuery({
     queryKey: ['leads'],
     queryFn: async () => {
       const r = await api.leads();
-      if (!r.ok) return [] as Lead[];
+      if (!r.ok) throw new Error(`GET_LEADS_FAILED: ${r.error}`);
       return (r.data ?? []) as Lead[];
     },
-    staleTime: 10_000,
-    retry: 1,
+    staleTime: 5_000,
+    retry: 0,
   });
 
   const createLead = useMutation({
     mutationFn: async ({ name, phone }: { name: string; phone: string }) => {
-      const payload = {
-        name,
-        phone,
-        // mantém compat com backend: ele aceita stage/status e normaliza
-        stage: 'Novo',
-      };
-      const r = await api.createLead(payload as any);
-      if (!r.ok) throw new Error(r.error);
+      const r = await api.createLead({ name, phone, stage: 'Novo' } as any);
+
+      // ✅ traz o erro real (inclui details/debugId se existirem)
+      if (!r.ok) {
+        const details =
+          (r as any)?.details ? JSON.stringify((r as any).details) : '';
+        const dbg = (r as any)?.debugId ? ` debugId=${(r as any).debugId}` : '';
+        throw new Error(`${r.error}${dbg}${details ? ` details=${details}` : ''}`);
+      }
+
       return r.data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['overview'] });
+    onMutate: () => {
+      setSaveError('');
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['leads'] });
+      await qc.invalidateQueries({ queryKey: ['overview'] });
+
       setShowAdd(false);
       setNewName('');
       setNewPhone('');
+    },
+    onError: (e: any) => {
+      setSaveError(String(e?.message || e));
     },
   });
 
@@ -174,7 +178,9 @@ export default function LeadsPage() {
       render: (item: Lead) => (
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary">{initials(String(item.name || 'Lead'))}</span>
+            <span className="text-sm font-semibold text-primary">
+              {initials(String(item.name || 'Lead'))}
+            </span>
           </div>
           <div>
             <div className="font-medium text-foreground">{item.name || '—'}</div>
@@ -240,7 +246,9 @@ export default function LeadsPage() {
     {
       key: 'responsible',
       header: 'Responsible',
-      render: (item: Lead) => <span className="text-sm text-muted-foreground">{item.responsible || '-'}</span>,
+      render: (item: Lead) => (
+        <span className="text-sm text-muted-foreground">{item.responsible || '-'}</span>
+      ),
     },
     {
       key: 'actions',
@@ -266,59 +274,72 @@ export default function LeadsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold font-display tracking-tight text-foreground">Leads</h1>
-          <p className="text-muted-foreground mt-1">
-            {filteredLeads.length} leads encontrados
-          </p>
+          <p className="text-muted-foreground mt-1">{filteredLeads.length} leads encontrados</p>
         </div>
 
-        {/* Add Lead (sem mudar layout: só um botão) */}
         <Button onClick={() => setShowAdd((v) => !v)} className="gap-2">
           <Plus className="w-4 h-4" />
           Add Lead
         </Button>
       </div>
 
-      {/* Add Lead Inline Form (zero risco) */}
       {showAdd && (
-        <div className="flex flex-wrap items-center gap-3 p-4 bg-card border border-border rounded-xl">
-          <Input
-            placeholder="Name"
-            className="bg-secondary border-border max-w-sm"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-          <Input
-            placeholder="Phone"
-            className="bg-secondary border-border max-w-sm"
-            value={newPhone}
-            onChange={(e) => setNewPhone(e.target.value)}
-          />
-          <Button
-            onClick={() => {
-              const name = newName.trim();
-              const phone = newPhone.trim();
-              if (!name || !phone) return;
-              createLead.mutate({ name, phone });
-            }}
-            disabled={createLead.isPending}
-          >
-            {createLead.isPending ? 'Saving...' : 'Save'}
-          </Button>
-          <Button variant="outline" className="border-border text-muted-foreground" onClick={() => setShowAdd(false)}>
-            Cancel
-          </Button>
+        <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-xl">
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Name"
+              className="bg-secondary border-border max-w-sm"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+            <Input
+              placeholder="Phone"
+              className="bg-secondary border-border max-w-sm"
+              value={newPhone}
+              onChange={(e) => setNewPhone(e.target.value)}
+            />
+            <Button
+              onClick={() => {
+                const name = newName.trim();
+                const phone = newPhone.trim();
+                if (!name || !phone) {
+                  setSaveError('Preencha nome e telefone.');
+                  return;
+                }
+                createLead.mutate({ name, phone });
+              }}
+              disabled={createLead.isPending}
+            >
+              {createLead.isPending ? 'Saving...' : 'Save'}
+            </Button>
+            <Button
+              variant="outline"
+              className="border-border text-muted-foreground"
+              onClick={() => {
+                setShowAdd(false);
+                setSaveError('');
+              }}
+            >
+              Cancel
+            </Button>
 
-          <div className="text-xs text-muted-foreground ml-auto">
-            Workspace: <span className="text-foreground">{currentWorkspace?.name}</span>
+            <div className="text-xs text-muted-foreground ml-auto">
+              Workspace: <span className="text-foreground">{currentWorkspace?.name}</span>
+            </div>
           </div>
+
+          {/* ✅ ERRO VISÍVEL */}
+          {saveError && (
+            <div className="text-xs text-destructive break-all">
+              {saveError}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -344,34 +365,14 @@ export default function LeadsPage() {
             <SelectItem value="perdido">Perdido</SelectItem>
           </SelectContent>
         </Select>
-
-        {/* Bulk Actions (mantido) */}
-        {selectedLeads.length > 0 && (
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-sm text-muted-foreground">{selectedLeads.length} selected</span>
-            <Button variant="outline" size="sm" className="border-border text-muted-foreground">
-              Start Follow-up
-            </Button>
-            <Button variant="outline" size="sm" className="border-border text-muted-foreground">
-              Move Stage
-            </Button>
-            <Button variant="outline" size="sm" className="border-border text-muted-foreground">
-              Assign
-            </Button>
-          </div>
-        )}
       </div>
 
-      {/* Table */}
       <DataTable columns={columns} data={filteredLeads} keyField="id" />
 
-      {/* Loading / error (discreto) */}
-      {leadsQuery.isLoading && (
-        <div className="text-sm text-muted-foreground">Loading...</div>
-      )}
+      {leadsQuery.isLoading && <div className="text-sm text-muted-foreground">Loading...</div>}
       {leadsQuery.isError && (
         <div className="text-sm text-destructive">
-          Failed to load leads. Check /api/leads (headers).
+          Falhou ao carregar leads. Verifique /api/leads com headers.
         </div>
       )}
     </div>
