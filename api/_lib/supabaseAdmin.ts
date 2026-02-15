@@ -1,4 +1,6 @@
 // api/_lib/supabaseAdmin.ts
+import { createClient } from "@supabase/supabase-js";
+
 let _client: any = null;
 
 export async function supabaseAdmin() {
@@ -7,13 +9,11 @@ export async function supabaseAdmin() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url || !key) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-  }
+  if (!url) throw new Error("Missing SUPABASE_URL");
+  if (!key) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 
-  const { createClient } = await import("@supabase/supabase-js");
   _client = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
+    auth: { persistSession: false },
   });
 
   return _client;
