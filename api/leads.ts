@@ -1,47 +1,26 @@
 // api/leads.ts
+import { setCors, ok, fail } from "./_lib/response";
+import { requireAuth } from "./_lib/auth";
+import { supabaseAdmin } from "./_lib/supabaseAdmin";
+
+const toStage = (status: any) => String(status || "Novo");
+
 export default async function handler(req: any, res: any) {
-  // CORS (sem depender de _lib)
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-token, workspace_id");
-
-  if (req.method === "OPTIONS") return res.status(204).end();
-
-  const fail = (error: string, status = 400, extra?: any) =>
-    res.status(status).json({
-      ok: false,
-      error,
-      debugId: `dbg_${Math.random().toString(16).slice(2)}_${Date.now()}`,
-      ...(extra || {}),
-    });
-
-  const ok = (data: any, status = 200) => res.status(status).json({ ok: true, data });
-
-  const token = (req.headers["x-api-token"] || "").toString().trim();
-  const workspace_id = (req.headers["workspace_id"] || "").toString().trim();
-
-  if (!token) return fail("MISSING_X_API_TOKEN", 401);
-  if (!workspace_id) return fail("MISSING_WORKSPACE_ID", 401);
-
   try {
-    // ✅ dynamic import (se quebrar, agora volta JSON com details)
-    const { supabaseAdmin } = await import("./_lib/supabaseAdmin.ts");
+    setCors(res);
+    if (req.method === "OPTIONS") return res.status(204).end();
 
-    const sb = await supabaseAdmin();
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
 
-    // auth direto aqui (não importa auth.ts pra não crashar)
-    const { data: tokRow, error: tokErr } = await sb
-      .from("api_tokens")
-      .select("token, workspace_id, is_active")
-      .eq("token", token)
-      .eq("workspace_id", workspace_id)
-      .eq("is_active", true)
-      .maybeSingle();
+    let sb: any;
+    try {
+      sb = await supabaseAdmin();
+    } catch (e: any) {
+      return fail(res, "SUPABASE_INIT_FAILED", 500, { details: String(e?.message || e) });
+    }
 
-    if (tokErr) return fail("AUTH_QUERY_FAILED", 500, { details: tokErr });
-    if (!tokRow) return fail("INVALID_TOKEN_OR_WORKSPACE", 403);
-
-    const client_id = workspace_id;
+    const client_id = auth.workspace_id;
 
     if (req.method === "GET") {
       const { data, error } = await sb
@@ -50,16 +29,16 @@ export default async function handler(req: any, res: any) {
         .eq("client_id", client_id)
         .order("created_at", { ascending: false });
 
-      if (error) return fail("LEADS_FETCH_FAILED", 500, { details: error });
+      if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
 
       const mapped = (data ?? []).map((l: any) => ({
         ...l,
         workspace_id: l.client_id,
-        stage: String(l.status || "Novo"),
+        stage: toStage(l.status),
         status: l.status ?? "Novo",
       }));
 
-      return ok(mapped);
+      return ok(res, mapped);
     }
 
     if (req.method === "POST") {
@@ -78,23 +57,20 @@ export default async function handler(req: any, res: any) {
         .select("*")
         .maybeSingle();
 
-      if (error) return fail("LEAD_INSERT_FAILED", 500, { details: error });
+      if (error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: error });
 
-      return ok(
-        { ...data, workspace_id: data.client_id, stage: String(data.status || "Novo") },
-        201
-      );
+      return ok(res, { ...data, workspace_id: data.client_id, stage: toStage(data.status) }, 201);
     }
 
     if (req.method === "PATCH") {
       const leadId = req.query?.id;
-      if (!leadId) return fail("MISSING_LEAD_ID", 400);
+      if (!leadId) return fail(res, "MISSING_LEAD_ID", 400);
 
       let body: any = {};
       try { body = req.body || {}; } catch { body = {}; }
 
       const status = body?.status ?? body?.stage;
-      if (!status) return fail("MISSING_STAGE", 400);
+      if (!status) return fail(res, "MISSING_STAGE", 400);
 
       const { data, error } = await sb
         .from("leads")
@@ -104,20 +80,19 @@ export default async function handler(req: any, res: any) {
         .select("*")
         .maybeSingle();
 
-      if (error) return fail("LEAD_UPDATE_FAILED", 500, { details: error });
-      if (!data) return fail("LEAD_NOT_FOUND", 404);
+      if (error) return fail(res, "LEAD_UPDATE_FAILED", 500, { details: error });
+      if (!data) return fail(res, "LEAD_NOT_FOUND", 404);
 
-      return ok({ ...data, workspace_id: data.client_id, stage: String(data.status || "Novo") });
+      return ok(res, { ...data, workspace_id: data.client_id, stage: toStage(data.status) });
     }
 
-    return fail("METHOD_NOT_ALLOWED", 405);
+    return fail(res, "METHOD_NOT_ALLOWED", 405);
   } catch (e: any) {
-    // ✅ agora qualquer crash vira JSON com stack
     return res.status(500).json({
       ok: false,
-      error: "LEADS_CRASH_BEFORE_RESPONSE",
+      error: "LEADS_HANDLER_CRASH",
       details: String(e?.message || e),
-      stack: e?.stack ? String(e.stack).slice(0, 1200) : null,
+      stack: e?.stack ? String(e.stack).slice(0, 800) : null,
     });
   }
 }
