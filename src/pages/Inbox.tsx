@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Search, Send, Phone, UserPlus, Image, Mic, MoreHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,58 +19,94 @@ type Conversation = {
   tags: string[];
 };
 
+function safeInitials(name?: string | null) {
+  const n = String(name || 'Lead').trim();
+  const parts = n.split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || 'L';
+}
+
 export default function Inbox() {
   const qc = useQueryClient();
+  const [searchParams] = useSearchParams();
+
   const [selected, setSelected] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   const leadsQuery = useQuery({
     queryKey: ['leads'],
-    queryFn: api.getLeads,
+    queryFn: async () => {
+      const r = await api.leads();
+      if (!r.ok) return [] as Lead[];
+      return r.data ?? [];
+    },
+    staleTime: 10_000,
+    retry: 1,
   });
 
   const conversations: Conversation[] = useMemo(() => {
-    const leads = (leadsQuery.data ?? []) as Lead[];
+    const leads = (leadsQuery.data ?? []) as any[];
     return leads.map((l: any) => ({
-      id: l.id,
-      leadName: (l.name ?? l.full_name ?? l.nome ?? 'Lead').toString(),
-      leadPhone: (l.phone ?? l.whatsapp ?? l.numero ?? '').toString(),
-      lastMessage: (l.last_message ?? l.lastMessage ?? '').toString(),
-      lastMessageAt: (l.last_message_at ?? l.updated_at ?? '').toString(),
+      id: String(l.id),
+      leadName: String(l.name ?? l.full_name ?? l.nome ?? 'Lead'),
+      leadPhone: String(l.phone ?? l.whatsapp ?? l.numero ?? ''),
+      lastMessage: String(l.last_message ?? l.lastMessage ?? l.last_message_text ?? ''),
+      lastMessageAt: String(l.last_message_at ?? l.updated_at ?? l.created_at ?? ''),
       unread: Number(l.unread ?? 0),
       tags: Array.isArray(l.tags) ? l.tags : [],
     }));
   }, [leadsQuery.data]);
 
-  const selectedConversation = useMemo(() => {
-    const id = selected ?? conversations[0]?.id ?? null;
-    return conversations.find((c) => c.id === id) ?? null;
-  }, [conversations, selected]);
-
   const filteredConversations = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return conversations;
     return conversations.filter(
-      (c) => c.leadName.toLowerCase().includes(q) || c.leadPhone.toLowerCase().includes(q) || c.lastMessage.toLowerCase().includes(q)
+      (c) =>
+        c.leadName.toLowerCase().includes(q) ||
+        c.leadPhone.toLowerCase().includes(q) ||
+        c.lastMessage.toLowerCase().includes(q)
     );
   }, [conversations, searchQuery]);
 
+  // ✅ seleção automática por URL: /inbox?lead_id=...
+  const leadIdFromUrl = searchParams.get('lead_id');
+  const selectedId = useMemo(() => {
+    if (leadIdFromUrl) return leadIdFromUrl;
+    if (selected) return selected;
+    return conversations[0]?.id ?? null;
+  }, [leadIdFromUrl, selected, conversations]);
+
+  const selectedConversation = useMemo(() => {
+    if (!selectedId) return null;
+    return conversations.find((c) => c.id === selectedId) ?? null;
+  }, [conversations, selectedId]);
+
   const messagesQuery = useQuery({
     queryKey: ['messages', selectedConversation?.id],
-    queryFn: () => api.getMessages(selectedConversation!.id),
+    queryFn: async () => {
+      const r = await api.messages(selectedConversation!.id);
+      if (!r.ok) return [] as Message[];
+      return r.data ?? [];
+    },
     enabled: !!selectedConversation?.id,
+    staleTime: 5_000,
+    retry: 1,
   });
 
   const sendMutation = useMutation({
-    mutationFn: ({ leadId, text }: { leadId: string; text: string }) => api.sendMessage(leadId, text),
+    mutationFn: async ({ leadId, body }: { leadId: string; body: string }) => {
+      const r = await api.sendMessage(leadId, body);
+      if (!r.ok) throw new Error(r.error);
+      return r.data;
+    },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['messages', vars.leadId] });
       qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
     },
   });
 
-  const messages: Message[] = (messagesQuery.data ?? []) as Message[];
+  const messages: any[] = (messagesQuery.data ?? []) as any[];
 
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-6 animate-fade-in">
@@ -111,7 +148,7 @@ export default function Inbox() {
                 <div className="relative">
                   <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center">
                     <span className="text-sm font-semibold text-foreground">
-                      {conv.leadName.split(' ').slice(0, 2).map((n) => n[0]).join('')}
+                      {safeInitials(conv.leadName)}
                     </span>
                   </div>
                   {conv.unread > 0 && (
@@ -138,6 +175,7 @@ export default function Inbox() {
                 </div>
               </div>
             ))}
+
             {leadsQuery.isLoading && (
               <div className="p-4 text-sm text-muted-foreground">Loading...</div>
             )}
@@ -156,7 +194,7 @@ export default function Inbox() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <span className="text-sm font-semibold text-primary">
-                  {selectedConversation.leadName.split(' ').slice(0, 2).map((n) => n[0]).join('')}
+                  {safeInitials(selectedConversation.leadName)}
                 </span>
               </div>
               <div>
@@ -183,18 +221,23 @@ export default function Inbox() {
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-3">
               {messages.map((m) => {
-                const mine = (m.direction ?? 'out') !== 'in';
+                const direction = String((m as any).direction ?? (m as any).dir ?? 'out');
+                const mine = direction !== 'in';
+                const body = String((m as any).body ?? (m as any).text ?? (m as any).content ?? '');
+                const createdAt = (m as any).created_at ?? (m as any).createdAt ?? null;
+
                 return (
-                  <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                  <div key={String((m as any).id ?? `${createdAt}-${body.slice(0, 8)}`)} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
                     <div className={cn('max-w-[75%] rounded-2xl px-4 py-2 text-sm', mine ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground')}>
-                      <div>{(m.text ?? (m as any).content ?? '').toString()}</div>
+                      <div>{body}</div>
                       <div className={cn('mt-1 text-[10px] opacity-70', mine ? 'text-primary-foreground' : 'text-muted-foreground')}>
-                        {m.created_at ? new Date(m.created_at).toLocaleTimeString() : ''}
+                        {createdAt ? new Date(createdAt).toLocaleTimeString() : ''}
                       </div>
                     </div>
                   </div>
                 );
               })}
+
               {messagesQuery.isLoading && (
                 <div className="text-sm text-muted-foreground">Loading messages...</div>
               )}
@@ -217,22 +260,24 @@ export default function Inbox() {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       if (!messageInput.trim()) return;
-                      sendMutation.mutate({ leadId: selectedConversation.id, text: messageInput.trim() });
+                      sendMutation.mutate({ leadId: selectedConversation.id, body: messageInput.trim() });
                       setMessageInput('');
                     }
                   }}
                 />
               </div>
+
               <Button variant="outline" size="icon" className="border-border text-muted-foreground">
                 <Image className="w-4 h-4" />
               </Button>
               <Button variant="outline" size="icon" className="border-border text-muted-foreground">
                 <Mic className="w-4 h-4" />
               </Button>
+
               <Button
                 onClick={() => {
                   if (!messageInput.trim()) return;
-                  sendMutation.mutate({ leadId: selectedConversation.id, text: messageInput.trim() });
+                  sendMutation.mutate({ leadId: selectedConversation.id, body: messageInput.trim() });
                   setMessageInput('');
                 }}
                 disabled={sendMutation.isPending}
