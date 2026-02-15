@@ -13,7 +13,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { cn } from '@/lib/utils';
-import { isDemoMode } from '@/lib/demoMode';
 
 export function Header() {
   const { currentWorkspace, setCurrentWorkspace, workspaces } = useWorkspace();
@@ -31,7 +30,7 @@ export function Header() {
               <span className="font-semibold text-sm">{currentWorkspace.name}</span>
               <span className="text-[10px] text-muted-foreground">{currentWorkspace.niche}</span>
             </div>
-            <ChevronDown className="w-4 h-4 text-muted-foreground's" />
+            <ChevronDown className="w-4 h-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64 bg-popover border-border">
@@ -79,11 +78,9 @@ export function Header() {
       {/* Right Actions */}
       <div className="flex items-center gap-4">
         {/* Demo Badge */}
-        {isDemoMode && (
-          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-xs">
-            DEMO MODE
-          </Badge>
-        )}
+        <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-xs">
+          DEMO MODE
+        </Badge>
 
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">

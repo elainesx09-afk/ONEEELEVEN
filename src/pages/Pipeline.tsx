@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Clock, Star, MessageSquare, Calendar } from 'lucide-react';
+import { Plus, Clock, Star, MessageSquare, Calendar, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -11,25 +11,19 @@ import {
 } from '@/components/ui/dialog';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Lead, type LeadStage } from '@/lib/api';
+import { api, type Lead } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-type PipelineStage = LeadStage;
+type PipelineStage = 'novo' | 'qualificando' | 'proposta' | 'follow-up' | 'ganhou' | 'perdido';
 
 const stages: { id: PipelineStage; label: string; color: string }[] = [
-  { id: 'Novo', label: 'Novo', color: 'bg-info' },
-  { id: 'Em atendimento', label: 'Em atendimento', color: 'bg-purple-500' },
-  { id: 'Qualificado', label: 'Qualificado', color: 'bg-warning' },
-  { id: 'Agendado', label: 'Agendado', color: 'bg-orange-500' },
-  { id: 'Fechado', label: 'Fechado', color: 'bg-success' },
-  { id: 'Perdido', label: 'Perdido', color: 'bg-destructive' },
+  { id: 'novo', label: 'Novo', color: 'bg-info' },
+  { id: 'qualificando', label: 'Qualificando', color: 'bg-purple-500' },
+  { id: 'proposta', label: 'Proposta', color: 'bg-warning' },
+  { id: 'follow-up', label: 'Follow-up', color: 'bg-orange-500' },
+  { id: 'ganhou', label: 'Ganhou', color: 'bg-success' },
+  { id: 'perdido', label: 'Perdido', color: 'bg-destructive' },
 ];
-
-function safeInitials(name?: string | null) {
-  const n = String(name || 'Lead').trim();
-  const parts = n.split(/\s+/).filter(Boolean);
-  return parts.slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || 'L';
-}
 
 export default function Pipeline() {
   const { currentWorkspace } = useWorkspace();
@@ -37,29 +31,18 @@ export default function Pipeline() {
 
   const leadsQuery = useQuery({
     queryKey: ['leads', currentWorkspace.id],
-    queryFn: async () => {
-      const r = await api.leads();
-      // não quebra a UI se der erro: só zera
-      if (!r.ok) return [] as Lead[];
-      return r.data ?? [];
-    },
-    staleTime: 10_000,
-    retry: 1,
+    queryFn: () => api.getLeads(),
   });
 
   const updateStage = useMutation({
-    mutationFn: async ({ leadId, stage }: { leadId: string; stage: PipelineStage }) => {
-      const r = await api.updateLeadStage(leadId, stage);
-      if (!r.ok) throw new Error(r.error);
-      return r.data;
-    },
+    mutationFn: ({ leadId, stage }: { leadId: string; stage: PipelineStage }) =>
+      api.updateLeadStage(leadId, stage),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
     },
   });
-
-  const [selectedLead, setSelectedLead] = useState<any>(null);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [draggedLead, setDraggedLead] = useState<string | null>(null);
 
   const leadsState = useMemo(() => {
@@ -68,28 +51,30 @@ export default function Pipeline() {
       ...l,
       name: l.name ?? l.full_name ?? l.nome ?? 'Lead',
       phone: l.phone ?? l.number ?? l.whatsapp ?? '',
-      stage: (l.stage ?? l.status ?? 'Novo') as PipelineStage,
+      stage: (l.stage ?? 'novo') as PipelineStage,
       score: typeof l.score === 'number' ? l.score : 50,
       lastMessage: l.lastMessage ?? l.last_message ?? l.last_message_text ?? '',
-      lastMessageAt: l.lastMessageAt ?? l.last_message_at ?? l.updated_at ?? l.created_at ?? '',
       nextAction: l.nextAction ?? l.next_action ?? '',
       tags: Array.isArray(l.tags) ? l.tags : [],
-      needsFollowUp: !!(l.needsFollowUp ?? l.needs_follow_up),
-      source: l.source ?? l.origem ?? '—',
     })) as any[];
   }, [leadsQuery.data]);
 
   const getLeadsByStage = (stage: PipelineStage) =>
-    leadsState.filter((l) => (l.stage ?? 'Novo') === stage);
+    leadsState.filter((l) => (l.stage ?? 'novo') === stage);
 
-  const handleDragStart = (leadId: string) => setDraggedLead(leadId);
+  const handleDragStart = (leadId: string) => {
+    setDraggedLead(leadId);
+  };
 
-  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
 
   const handleDrop = (stage: PipelineStage) => {
-    if (!draggedLead) return;
-    updateStage.mutate({ leadId: draggedLead, stage });
-    setDraggedLead(null);
+    if (draggedLead) {
+      updateStage.mutate({ leadId: draggedLead, stage });
+      setDraggedLead(null);
+    }
   };
 
   return (
@@ -99,7 +84,7 @@ export default function Pipeline() {
         <div>
           <h1 className="text-3xl font-bold font-display tracking-tight text-foreground">Pipeline</h1>
           <p className="text-muted-foreground mt-1">
-            Visualize e gerencie seu funil
+            Visualize and manage your sales funnel
           </p>
         </div>
       </div>
@@ -138,13 +123,16 @@ export default function Pipeline() {
                       draggable
                       onDragStart={() => handleDragStart(lead.id)}
                       onClick={() => setSelectedLead(lead)}
-                      className={cn('kanban-card', draggedLead === lead.id && 'opacity-50')}
+                      className={cn(
+                        'kanban-card',
+                        draggedLead === lead.id && 'opacity-50'
+                      )}
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                             <span className="text-xs font-semibold text-primary">
-                              {safeInitials(lead.name)}
+                              {lead.name.split(' ').map((n) => n[0]).join('')}
                             </span>
                           </div>
                           <div>
@@ -176,7 +164,7 @@ export default function Pipeline() {
 
                       {lead.tags.length > 0 && (
                         <div className="flex gap-1 mt-2">
-                          {lead.tags.slice(0, 2).map((tag: string) => (
+                          {lead.tags.slice(0, 2).map((tag) => (
                             <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">
                               {tag}
                             </Badge>
@@ -199,7 +187,7 @@ export default function Pipeline() {
             <DialogTitle className="text-foreground flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <span className="text-sm font-semibold text-primary">
-                  {safeInitials(selectedLead?.name)}
+                  {selectedLead?.name.split(' ').map((n) => n[0]).join('')}
                 </span>
               </div>
               {selectedLead?.name}
@@ -234,6 +222,11 @@ export default function Pipeline() {
                     <Calendar className="w-4 h-4 text-primary" />
                     <span className="text-foreground">D+0 - Initial contact</span>
                     <Badge variant="secondary" className="text-[10px]">Sent</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">D+1 - Follow-up 1</span>
+                    <Badge variant="outline" className="text-[10px] border-border">Pending</Badge>
                   </div>
                 </div>
               </div>
