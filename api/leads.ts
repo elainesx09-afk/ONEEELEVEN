@@ -1,7 +1,7 @@
 // api/leads.ts
-import { setCors, ok, fail } from "./_lib/response";
-import { requireAuth } from "./_lib/auth";
-import { supabaseAdmin } from "./_lib/supabaseAdmin";
+import { setCors, ok, fail } from "./lib/response";
+import { requireAuth } from "./lib/auth";
+import { supabaseAdmin } from "./lib/supabaseAdmin";
 
 const toStage = (status: any) => String(status || "Novo");
 
@@ -13,14 +13,8 @@ export default async function handler(req: any, res: any) {
     const auth = await requireAuth(req, res);
     if (!auth) return;
 
-    let sb: any;
-    try {
-      sb = await supabaseAdmin();
-    } catch (e: any) {
-      return fail(res, "SUPABASE_INIT_FAILED", 500, { details: String(e?.message || e) });
-    }
-
-    const client_id = auth.workspace_id;
+    const sb = await supabaseAdmin();
+    const client_id = auth.workspace_id; // workspace_id do header = client_id no schema atual
 
     if (req.method === "GET") {
       const { data, error } = await sb
@@ -59,7 +53,11 @@ export default async function handler(req: any, res: any) {
 
       if (error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: error });
 
-      return ok(res, { ...data, workspace_id: data.client_id, stage: toStage(data.status) }, 201);
+      return ok(res, {
+        ...data,
+        workspace_id: data.client_id,
+        stage: toStage(data.status),
+      }, 201);
     }
 
     if (req.method === "PATCH") {
@@ -83,7 +81,11 @@ export default async function handler(req: any, res: any) {
       if (error) return fail(res, "LEAD_UPDATE_FAILED", 500, { details: error });
       if (!data) return fail(res, "LEAD_NOT_FOUND", 404);
 
-      return ok(res, { ...data, workspace_id: data.client_id, stage: toStage(data.status) });
+      return ok(res, {
+        ...data,
+        workspace_id: data.client_id,
+        stage: toStage(data.status),
+      });
     }
 
     return fail(res, "METHOD_NOT_ALLOWED", 405);
@@ -92,7 +94,7 @@ export default async function handler(req: any, res: any) {
       ok: false,
       error: "LEADS_HANDLER_CRASH",
       details: String(e?.message || e),
-      stack: e?.stack ? String(e.stack).slice(0, 800) : null,
+      stack: e?.stack ? String(e.stack).slice(0, 900) : null,
     });
   }
 }
