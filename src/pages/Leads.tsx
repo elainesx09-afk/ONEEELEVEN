@@ -27,8 +27,8 @@ type Lead = {
   id: string;
   name?: string | null;
   phone?: string | null;
-  stage?: string;
-  status?: string;
+  stage?: string | null;
+  status?: string | null;
   source?: string | null;
   score?: number | null;
   last_message?: string | null;
@@ -59,11 +59,11 @@ const stageLabels: Record<StageKey, string> = {
 function toStageKey(stage?: string | null): StageKey {
   const s = String(stage || '').trim().toLowerCase();
   if (s === 'novo') return 'novo';
-  if (s.includes('atendimento')) return 'qualificando';
   if (s === 'qualificado' || s.includes('qualific')) return 'qualificando';
-  if (s === 'agendado') return 'proposta';
+  if (s === 'agendado' || s === 'proposta') return 'proposta';
   if (s === 'fechado' || s === 'ganhou') return 'ganhou';
   if (s === 'perdido') return 'perdido';
+  if (s.includes('follow')) return 'follow-up';
   return 'novo';
 }
 
@@ -75,6 +75,21 @@ function initials(name: string) {
     .slice(0, 2)
     .map((n) => n[0]?.toUpperCase())
     .join('') || 'L';
+}
+
+// ✅ formata erro pra aparecer na UI (sem console)
+function formatApiError(e: any): string {
+  if (!e) return 'UNKNOWN_ERROR';
+
+  // quando é throw new Error("...")
+  if (typeof e?.message === 'string') return e.message;
+
+  // quando veio objeto
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
 }
 
 export default function LeadsPage() {
@@ -89,17 +104,23 @@ export default function LeadsPage() {
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
 
-  // ✅ erro visível na UI
   const [saveError, setSaveError] = useState<string>('');
 
   const leadsQuery = useQuery({
     queryKey: ['leads'],
     queryFn: async () => {
       const r = await api.leads();
-      if (!r.ok) throw new Error(`GET_LEADS_FAILED: ${r.error}`);
+
+      // ✅ MOSTRA o erro real
+      if (!r.ok) {
+        const dbg = (r as any)?.debugId ? ` debugId=${(r as any).debugId}` : '';
+        const det = (r as any)?.details ? ` details=${JSON.stringify((r as any).details)}` : '';
+        throw new Error(`${r.error}${dbg}${det}`);
+      }
+
       return (r.data ?? []) as Lead[];
     },
-    staleTime: 5_000,
+    staleTime: 3_000,
     retry: 0,
   });
 
@@ -107,19 +128,16 @@ export default function LeadsPage() {
     mutationFn: async ({ name, phone }: { name: string; phone: string }) => {
       const r = await api.createLead({ name, phone, stage: 'Novo' } as any);
 
-      // ✅ traz o erro real (inclui details/debugId se existirem)
+      // ✅ MOSTRA o erro real
       if (!r.ok) {
-        const details =
-          (r as any)?.details ? JSON.stringify((r as any).details) : '';
         const dbg = (r as any)?.debugId ? ` debugId=${(r as any).debugId}` : '';
-        throw new Error(`${r.error}${dbg}${details ? ` details=${details}` : ''}`);
+        const det = (r as any)?.details ? ` details=${JSON.stringify((r as any).details)}` : '';
+        throw new Error(`${r.error}${dbg}${det}`);
       }
 
       return r.data;
     },
-    onMutate: () => {
-      setSaveError('');
-    },
+    onMutate: () => setSaveError(''),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['leads'] });
       await qc.invalidateQueries({ queryKey: ['overview'] });
@@ -128,9 +146,7 @@ export default function LeadsPage() {
       setNewName('');
       setNewPhone('');
     },
-    onError: (e: any) => {
-      setSaveError(String(e?.message || e));
-    },
+    onError: (e: any) => setSaveError(formatApiError(e)),
   });
 
   const allLeads = (leadsQuery.data ?? []) as Lead[];
@@ -178,9 +194,7 @@ export default function LeadsPage() {
       render: (item: Lead) => (
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary">
-              {initials(String(item.name || 'Lead'))}
-            </span>
+            <span className="text-sm font-semibold text-primary">{initials(String(item.name || 'Lead'))}</span>
           </div>
           <div>
             <div className="font-medium text-foreground">{item.name || '—'}</div>
@@ -246,9 +260,7 @@ export default function LeadsPage() {
     {
       key: 'responsible',
       header: 'Responsible',
-      render: (item: Lead) => (
-        <span className="text-sm text-muted-foreground">{item.responsible || '-'}</span>
-      ),
+      render: (item: Lead) => <span className="text-sm text-muted-foreground">{item.responsible || '-'}</span>,
     },
     {
       key: 'actions',
@@ -331,12 +343,8 @@ export default function LeadsPage() {
             </div>
           </div>
 
-          {/* ✅ ERRO VISÍVEL */}
-          {saveError && (
-            <div className="text-xs text-destructive break-all">
-              {saveError}
-            </div>
-          )}
+          {/* ✅ erro de SAVE */}
+          {saveError && <div className="text-xs text-destructive break-all">{saveError}</div>}
         </div>
       )}
 
@@ -369,10 +377,10 @@ export default function LeadsPage() {
 
       <DataTable columns={columns} data={filteredLeads} keyField="id" />
 
-      {leadsQuery.isLoading && <div className="text-sm text-muted-foreground">Loading...</div>}
+      {/* ✅ erro de LOAD (mostra motivo real) */}
       {leadsQuery.isError && (
-        <div className="text-sm text-destructive">
-          Falhou ao carregar leads. Verifique /api/leads com headers.
+        <div className="text-xs text-destructive break-all">
+          {formatApiError(leadsQuery.error)}
         </div>
       )}
     </div>
