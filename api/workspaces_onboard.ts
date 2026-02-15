@@ -1,6 +1,6 @@
 // api/workspaces_onboard.ts
-import { setCors, ok, fail } from "./_lib/response";
-import { supabaseAdmin } from "./_lib/supabaseAdmin";
+import { setCors, ok, fail } from "./_lib/response.ts";
+import { supabaseAdmin } from "./_lib/supabaseAdmin.ts";
 
 function randomToken() {
   return `oneeleven_${Math.random().toString(16).slice(2)}_${Date.now()}`;

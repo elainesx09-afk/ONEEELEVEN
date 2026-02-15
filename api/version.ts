@@ -4,7 +4,10 @@ export default function handler(req: any, res: any) {
     // CORS (sem depender de _lib)
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-token, workspace_id");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, x-api-token, workspace_id"
+    );
 
     if (req.method === "OPTIONS") return res.status(204).end();
     if (req.method !== "GET") {
@@ -31,6 +34,7 @@ export default function handler(req: any, res: any) {
         envs_present: {
           SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
           SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+          API_TOKEN: Boolean(process.env.API_TOKEN),
         },
       },
     });
