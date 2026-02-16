@@ -1,6 +1,6 @@
 // api/workspaces.ts
-import { setCors, ok, fail } from "./_lib/response";
-import { supabaseAdmin } from "./_lib/supabaseAdmin";
+import { setCors, ok, fail } from "./_lib/response.js";
+import { supabaseAdmin } from "./_lib/supabaseAdmin.js";
 
 export default async function handler(req: any, res: any) {
   setCors(res);
@@ -13,7 +13,7 @@ export default async function handler(req: any, res: any) {
 
   const sb = await supabaseAdmin();
 
-  // MVP: token pode acessar workspaces via api_tokens
+  // token → workspaces autorizados
   const { data: toks, error: tokErr } = await sb
     .from("api_tokens")
     .select("workspace_id, is_active")
@@ -21,11 +21,12 @@ export default async function handler(req: any, res: any) {
     .eq("is_active", true);
 
   if (tokErr) return fail(res, "TOKENS_QUERY_FAILED", 500, { details: tokErr });
-  const workspaceIds = (toks ?? []).map((t: any) => t.workspace_id).filter(Boolean);
 
-  if (workspaceIds.length === 0) {
-    return ok(res, []);
-  }
+  const workspaceIds = (toks ?? [])
+    .map((t: any) => t.workspace_id)
+    .filter(Boolean);
+
+  if (workspaceIds.length === 0) return ok(res, []);
 
   const { data: wss, error: wsErr } = await sb
     .from("workspaces")
@@ -35,7 +36,6 @@ export default async function handler(req: any, res: any) {
 
   if (wsErr) return fail(res, "WORKSPACES_QUERY_FAILED", 500, { details: wsErr });
 
-  // formato compatível com o seu WorkspaceContext
   const mapped = (wss ?? []).map((w: any) => ({
     id: w.id,
     name: w.name ?? "Workspace",
