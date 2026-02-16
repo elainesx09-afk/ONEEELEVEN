@@ -1,7 +1,6 @@
-// api/messages.ts
-import { setCors, ok, fail } from "./lib/response";
-import { requireAuth } from "./lib/auth";
-import { supabaseAdmin } from "./lib/supabaseAdmin";
+import { setCors, ok, fail } from "./lib/response.js";
+import { requireAuth } from "./lib/auth.js";
+import { supabaseAdmin } from "./lib/supabaseAdmin.js";
 
 export default async function handler(req: any, res: any) {
   try {
@@ -51,11 +50,6 @@ export default async function handler(req: any, res: any) {
 
     return fail(res, "METHOD_NOT_ALLOWED", 405);
   } catch (e: any) {
-    return res.status(500).json({
-      ok: false,
-      error: "MESSAGES_HANDLER_CRASH",
-      details: String(e?.message || e),
-      stack: e?.stack ? String(e.stack).slice(0, 900) : null,
-    });
+    return res.status(500).json({ ok: false, error: "MESSAGES_HANDLER_CRASH", details: String(e?.message || e) });
   }
 }
