@@ -1,7 +1,6 @@
-// api/leads.ts
-import { setCors, ok, fail } from "./lib/response";
-import { requireAuth } from "./lib/auth";
-import { supabaseAdmin } from "./lib/supabaseAdmin";
+import { setCors, ok, fail } from "./lib/response.js";
+import { requireAuth } from "./lib/auth.js";
+import { supabaseAdmin } from "./lib/supabaseAdmin.js";
 
 const toStage = (status: any) => String(status || "Novo");
 
@@ -14,7 +13,7 @@ export default async function handler(req: any, res: any) {
     if (!auth) return;
 
     const sb = await supabaseAdmin();
-    const client_id = auth.workspace_id; // workspace_id do header = client_id no schema atual
+    const client_id = auth.workspace_id; // workspace_id header = client_id (seu schema atual)
 
     if (req.method === "GET") {
       const { data, error } = await sb
@@ -25,14 +24,15 @@ export default async function handler(req: any, res: any) {
 
       if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
 
-      const mapped = (data ?? []).map((l: any) => ({
-        ...l,
-        workspace_id: l.client_id,
-        stage: toStage(l.status),
-        status: l.status ?? "Novo",
-      }));
-
-      return ok(res, mapped);
+      return ok(
+        res,
+        (data ?? []).map((l: any) => ({
+          ...l,
+          workspace_id: l.client_id,
+          stage: toStage(l.status),
+          status: l.status ?? "Novo",
+        }))
+      );
     }
 
     if (req.method === "POST") {
@@ -53,11 +53,7 @@ export default async function handler(req: any, res: any) {
 
       if (error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: error });
 
-      return ok(res, {
-        ...data,
-        workspace_id: data.client_id,
-        stage: toStage(data.status),
-      }, 201);
+      return ok(res, { ...data, workspace_id: data.client_id, stage: toStage(data.status) }, 201);
     }
 
     if (req.method === "PATCH") {
@@ -81,20 +77,11 @@ export default async function handler(req: any, res: any) {
       if (error) return fail(res, "LEAD_UPDATE_FAILED", 500, { details: error });
       if (!data) return fail(res, "LEAD_NOT_FOUND", 404);
 
-      return ok(res, {
-        ...data,
-        workspace_id: data.client_id,
-        stage: toStage(data.status),
-      });
+      return ok(res, { ...data, workspace_id: data.client_id, stage: toStage(data.status) });
     }
 
     return fail(res, "METHOD_NOT_ALLOWED", 405);
   } catch (e: any) {
-    return res.status(500).json({
-      ok: false,
-      error: "LEADS_HANDLER_CRASH",
-      details: String(e?.message || e),
-      stack: e?.stack ? String(e.stack).slice(0, 900) : null,
-    });
+    return res.status(500).json({ ok: false, error: "LEADS_HANDLER_CRASH", details: String(e?.message || e) });
   }
 }
