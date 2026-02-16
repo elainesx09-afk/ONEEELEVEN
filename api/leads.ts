@@ -39,18 +39,34 @@ async function requireAuth(req: any, res: any) {
   return { workspace_id: String(workspaceId) };
 }
 
-// UI stage -> status do banco (compat com check constraint)
-function stageToStatus(x: any) {
-  const s = String(x || "").trim().toLowerCase();
+// DB status -> UI stage (pipeline)
+function statusToStage(status: any): string {
+  const s = String(status || "Novo").trim().toLowerCase();
+
+  // PT-BR do banco
+  if (s === "novo") return "novo";
+  if (s === "qualificando" || s === "qualificado") return "qualificando";
+  if (s === "proposta") return "proposta";
+  if (s === "follow-up" || s === "follow up" || s === "followup") return "follow-up";
+  if (s === "agendado") return "proposta"; // se seu pipeline não tem "agendado", mapeia pra proposta
+  if (s === "fechado" || s === "ganhou") return "ganhou";
+  if (s === "perdido") return "perdido";
+
+  // Se já vier no formato do pipeline
+  if (["novo","qualificando","proposta","follow-up","ganhou","perdido"].includes(s)) return s;
+
+  return "novo";
+}
+
+// UI stage -> DB status (pra PATCH do pipeline)
+function stageToStatus(stage: any): string {
+  const s = String(stage || "novo").trim().toLowerCase();
   if (s === "novo") return "Novo";
-  if (s === "qualificando" || s === "qualificado") return "Qualificando";
+  if (s === "qualificando") return "Qualificando";
   if (s === "proposta") return "Proposta";
   if (s === "follow-up" || s === "follow up" || s === "followup") return "Follow-up";
-  if (s === "ganhou" || s === "fechado") return "Fechado";
+  if (s === "ganhou") return "Fechado";
   if (s === "perdido") return "Perdido";
-  if (s === "agendado") return "Agendado";
-  // se já vier PT-BR válido, deixa
-  if (["Novo","Qualificando","Proposta","Follow-up","Fechado","Perdido","Agendado"].includes(String(x))) return String(x);
   return "Novo";
 }
 
@@ -62,7 +78,7 @@ export default async function handler(req: any, res: any) {
   if (!auth) return;
 
   const sb = supabaseAdmin();
-  const client_id = auth.workspace_id;
+  const client_id = auth.workspace_id; // no seu schema, workspace_id = clients.id
 
   try {
     if (req.method === "GET") {
@@ -74,11 +90,10 @@ export default async function handler(req: any, res: any) {
 
       if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
 
-      // devolve como UI espera (stage + workspace_id espelho)
       const mapped = (data ?? []).map((l: any) => ({
         ...l,
         workspace_id: l.client_id,
-        stage: String(l.status || "Novo"),
+        stage: statusToStage(l.status), // <<< FIX pipeline
         status: l.status ?? "Novo",
       }));
 
@@ -90,9 +105,8 @@ export default async function handler(req: any, res: any) {
       const name = body?.name ?? null;
       const phone = body?.phone ?? null;
 
-      const status = stageToStatus(body?.status ?? body?.stage ?? "Novo");
+      const status = stageToStatus(body?.stage ?? body?.status ?? "novo");
 
-      // IMPORTANTE: não insere colunas que podem não existir (ex: notes) pra não quebrar
       const { data, error } = await sb
         .from("leads")
         .insert({ client_id, name, phone, status })
@@ -101,11 +115,16 @@ export default async function handler(req: any, res: any) {
 
       if (error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: error });
 
-      return ok(res, {
-        ...data,
-        workspace_id: data.client_id,
-        stage: String(data.status || "Novo"),
-      }, 201);
+      return ok(
+        res,
+        {
+          ...data,
+          workspace_id: data.client_id,
+          stage: statusToStage(data.status),
+          status: data.status ?? "Novo",
+        },
+        201
+      );
     }
 
     if (req.method === "PATCH") {
@@ -113,7 +132,7 @@ export default async function handler(req: any, res: any) {
       if (!leadId) return fail(res, "MISSING_LEAD_ID", 400);
 
       const body = req.body || {};
-      const status = stageToStatus(body?.status ?? body?.stage);
+      const status = stageToStatus(body?.stage ?? body?.status);
       if (!status) return fail(res, "MISSING_STAGE", 400);
 
       const { data, error } = await sb
@@ -130,7 +149,8 @@ export default async function handler(req: any, res: any) {
       return ok(res, {
         ...data,
         workspace_id: data.client_id,
-        stage: String(data.status || "Novo"),
+        stage: statusToStage(data.status),
+        status: data.status ?? "Novo",
       });
     }
 
