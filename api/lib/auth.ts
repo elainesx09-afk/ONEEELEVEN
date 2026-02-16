@@ -1,6 +1,5 @@
-// api/lib/auth.ts
-import { supabaseAdmin } from "./supabaseAdmin";
-import { fail } from "./response";
+import { supabaseAdmin } from "./supabaseAdmin.js";
+import { fail } from "./response.js";
 
 function hv(req: any, k: string) {
   const v = req?.headers?.[k];
