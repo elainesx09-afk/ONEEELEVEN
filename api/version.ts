@@ -1,5 +1,4 @@
-// api/version.ts
-import { setCors, ok } from "./lib/response";
+import { setCors, ok } from "./lib/response.js";
 
 export default function handler(req: any, res: any) {
   setCors(res);
@@ -12,9 +11,5 @@ export default function handler(req: any, res: any) {
     sha: process.env.VERCEL_GIT_COMMIT_SHA || null,
     branch: process.env.VERCEL_GIT_COMMIT_REF || null,
     env: process.env.VERCEL_ENV || null,
-    envs_present: {
-      SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
-      SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-    },
   });
 }
