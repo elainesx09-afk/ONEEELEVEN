@@ -1,54 +1,106 @@
-// api/workspaces.ts
-import { setCors, ok, fail } from "./_lib/response";
-import { requireAuth } from "./_lib/auth";
-import { supabaseAdmin } from "./_lib/supabaseAdmin";
+import React, { createContext, useContext, useMemo, useState, ReactNode, useEffect } from 'react';
+import { Workspace, demoWorkspaces } from '@/data/demoData';
+import { isDemoMode } from '@/lib/demoMode';
 
-export default async function handler(req: any, res: any) {
-  setCors(res);
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+interface WorkspaceContextType {
+  currentWorkspace: Workspace;
+  setCurrentWorkspace: (workspace: Workspace) => void;
+  workspaces: Workspace[];
+}
 
-  const auth = await requireAuth(req, res);
-  if (!auth) return;
+const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
-  const sb = await supabaseAdmin();
+async function fetchWorkspaces(): Promise<Workspace[]> {
+  const base = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+  const token = String(import.meta.env.VITE_API_TOKEN || '');
+  const wid = String(import.meta.env.VITE_WORKSPACE_ID || '');
 
-  // MVP: token -> 1 workspace (o do header). Retorna exatamente esse workspace se existir.
-  const wid = auth.workspace_id;
+  if (!base) throw new Error('VITE_API_BASE_URL ausente');
+  if (!token) throw new Error('VITE_API_TOKEN ausente');
+  if (!wid) throw new Error('VITE_WORKSPACE_ID ausente');
 
-  const { data: ws, error } = await sb
-    .from("workspaces")
-    .select("*")
-    .eq("id", wid)
-    .maybeSingle();
+  const r = await fetch(`${base}/api/workspaces`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-token': token,
+      'workspace_id': wid,
+    },
+  });
 
-  if (error) return fail(res, "WORKSPACE_FETCH_FAILED", 500, { details: error });
-  if (!ws) {
-    // Se não existir, ainda devolve um “workspace mínimo” pra UI não quebrar
-    return ok(res, [{
-      id: wid,
-      name: "One Eleven",
-      niche: "Workspace",
-      timezone: "America/Sao_Paulo",
-      status: "active",
+  const json = await r.json().catch(() => null);
+  if (!r.ok || !json?.ok) {
+    throw new Error(json?.error || `HTTP_${r.status}`);
+  }
+
+  const arr = Array.isArray(json.data) ? json.data : [];
+  return arr.map((w: any) => ({
+    id: String(w.id),
+    name: w.name ?? 'Workspace',
+    niche: w.niche ?? 'Workspace',
+    timezone: w.timezone ?? 'America/Sao_Paulo',
+    status: w.status ?? 'active',
+    instances: Number(w.instances ?? 0),
+    leads: Number(w.leads ?? 0),
+    conversions: Number(w.conversions ?? 0),
+    lastActivity: w.lastActivity ?? '—',
+    createdAt: w.createdAt ?? new Date().toISOString(),
+  }));
+}
+
+export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  // fallback seguro (não quebra UI)
+  const fallbackWorkspace: Workspace = useMemo(() => {
+    const id = String(import.meta.env.VITE_WORKSPACE_ID || 'workspace');
+    return {
+      id,
+      name: 'One Eleven',
+      niche: 'Workspace',
+      timezone: 'America/Sao_Paulo',
+      status: 'active',
       instances: 0,
       leads: 0,
       conversions: 0,
-      lastActivity: "—",
+      lastActivity: '—',
       createdAt: new Date().toISOString(),
-    }]);
-  }
+    };
+  }, []);
 
-  return ok(res, [{
-    id: String(ws.id),
-    name: ws.name ?? "Workspace",
-    niche: ws.niche ?? "Workspace",
-    timezone: ws.timezone ?? "America/Sao_Paulo",
-    status: ws.status ?? "active",
-    instances: 0,
-    leads: 0,
-    conversions: 0,
-    lastActivity: "—",
-    createdAt: ws.created_at ?? new Date().toISOString(),
-  }]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(isDemoMode ? demoWorkspaces : [fallbackWorkspace]);
+  const [currentWorkspace, setCurrentWorkspace] = useState<Workspace>(isDemoMode ? demoWorkspaces[0] : fallbackWorkspace);
+
+  useEffect(() => {
+    if (isDemoMode) return;
+
+    let alive = true;
+    fetchWorkspaces()
+      .then((ws) => {
+        if (!alive) return;
+        if (ws.length > 0) {
+          setWorkspaces(ws);
+          setCurrentWorkspace(ws[0]);
+        }
+      })
+      .catch(() => {
+        // se falhar, mantém fallbackWorkspace (sem tela preta)
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <WorkspaceContext.Provider value={{ currentWorkspace, setCurrentWorkspace, workspaces }}>
+      {children}
+    </WorkspaceContext.Provider>
+  );
+}
+
+export function useWorkspace() {
+  const context = useContext(WorkspaceContext);
+  if (context === undefined) {
+    throw new Error('useWorkspace must be used within a WorkspaceProvider');
+  }
+  return context;
 }
