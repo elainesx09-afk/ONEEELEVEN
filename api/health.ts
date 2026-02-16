@@ -1,68 +1,54 @@
 // api/health.ts
+import { setCors, ok, fail } from "./_lib/response";
+import { supabaseAdmin } from "./_lib/supabaseAdmin";
+
 export default async function handler(req: any, res: any) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-token, workspace_id");
+  setCors(res);
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+  if (req.method !== "GET")
+    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+
+  const checks: any = {
+    env: {
+      SUPABASE_URL: !!process.env.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      VERCEL_ENV: process.env.VERCEL_ENV || null,
+      sha: process.env.VERCEL_GIT_COMMIT_SHA || null,
+      branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+    },
+    supabase: { ok: false },
+  };
+
+  // valida env primeiro
+  if (!checks.env.SUPABASE_URL || !checks.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return fail(res, "MISSING_SUPABASE_ENVS", 500, { checks });
+  }
 
   try {
-    const path = await import("node:path");
-    const url = await import("node:url");
-    const fs = await import("node:fs");
+    const sb = await supabaseAdmin();
 
-    const __filename = url.fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
+    // ping leve (sem depender do seu schema)
+    const { data, error } = await sb.rpc("now");
+    // se rpc("now") não existir, fazemos fallback:
+    if (error) {
+      // fallback: consulta na workspaces (se existir) só com count head
+      const { error: e2 } = await sb
+        .from("workspaces")
+        .select("id", { count: "exact", head: true })
+        .limit(1);
 
-    const apiDir = __dirname;                 // /var/task/api
-    const libDir = path.join(__dirname, "lib"); // /var/task/api/lib
-
-    const apiFiles = fs.existsSync(apiDir) ? fs.readdirSync(apiDir) : [];
-    const libFiles = fs.existsSync(libDir) ? fs.readdirSync(libDir) : [];
-
-    async function tryImport(rel: string) {
-      try {
-        const mod: any = await import(rel);
-        return { ok: true, keys: Object.keys(mod || {}) };
-      } catch (e: any) {
-        return {
-          ok: false,
-          error: String(e?.message || e),
-          stack: e?.stack ? String(e.stack).slice(0, 1400) : null,
-        };
+      if (e2) {
+        checks.supabase = { ok: false, error: e2 };
+        return fail(res, "SUPABASE_CONNECTION_FAILED", 500, { checks });
       }
+      checks.supabase = { ok: true, mode: "fallback_table_head" };
+      return ok(res, { checks });
     }
 
-    const impResponse = await tryImport("./lib/response");
-    const impSupabase = await tryImport("./lib/supabaseAdmin");
-    const impAuth = await tryImport("./lib/auth");
-
-    return res.status(200).json({
-      ok: true,
-      runtime: {
-        dirname: __dirname,
-        apiDir,
-        libDir,
-        apiFiles,
-        libFiles,
-      },
-      imports: {
-        response: impResponse,
-        supabaseAdmin: impSupabase,
-        auth: impAuth,
-      },
-      envs_present: {
-        SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
-        SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-      },
-    });
+    checks.supabase = { ok: true, mode: "rpc_now", now: data };
+    return ok(res, { checks });
   } catch (e: any) {
-    return res.status(500).json({
-      ok: false,
-      error: "HEALTH_DIAG_CRASH",
-      details: String(e?.message || e),
-      stack: e?.stack ? String(e.stack).slice(0, 1400) : null,
-    });
+    checks.supabase = { ok: false, error: String(e?.message || e) };
+    return fail(res, "HEALTH_CRASH", 500, { checks });
   }
 }
