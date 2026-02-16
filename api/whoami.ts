@@ -1,6 +1,5 @@
-// api/whoami.ts
-import { setCors, ok } from "./lib/response";
-import { requireAuth } from "./lib/auth";
+import { setCors, ok } from "./lib/response.js";
+import { requireAuth } from "./lib/auth.js";
 
 export default async function handler(req: any, res: any) {
   setCors(res);
@@ -10,8 +9,5 @@ export default async function handler(req: any, res: any) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
 
-  return ok(res, {
-    workspace_id: auth.workspace_id,
-    token_prefix: auth.token ? auth.token.slice(0, 6) : null,
-  });
+  return ok(res, { workspace_id: auth.workspace_id, token_prefix: auth.token.slice(0, 6) });
 }
