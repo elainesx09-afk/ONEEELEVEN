@@ -1,161 +1,142 @@
-import { createClient } from "@supabase/supabase-js";
+// api/leads.ts
+import { setCors, ok, fail } from "./_lib/response.ts";
+import { requireAuth } from "./_lib/auth.ts";
+import { supabaseAdmin } from "./_lib/supabaseAdmin.ts";
 
-function cors(res: any) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-token, workspace_id");
-}
-function fail(res: any, error: string, status = 400, extra?: any) {
-  const debugId = `dbg_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-  return res.status(status).json({ ok: false, error, debugId, ...(extra || {}) });
-}
-function ok(res: any, data: any, status = 200) {
-  return res.status(status).json({ ok: true, data });
-}
-function supabaseAdmin() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error("Missing SUPABASE_URL");
-  if (!key) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-async function requireAuth(req: any, res: any) {
-  const token = req.headers["x-api-token"];
-  const workspaceId = req.headers["workspace_id"];
-  if (!token) return fail(res, "MISSING_X_API_TOKEN", 401);
-  if (!workspaceId) return fail(res, "MISSING_WORKSPACE_ID", 401);
+const ALLOWED_STAGES = new Set([
+  "Novo",
+  "Em atendimento",
+  "Qualificado",
+  "Agendado",
+  "Fechado",
+  "Perdido",
+]);
 
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("api_tokens")
-    .select("token, workspace_id, is_active")
-    .eq("token", token)
-    .eq("workspace_id", workspaceId)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (error) return fail(res, "AUTH_QUERY_FAILED", 500, { details: error });
-  if (!data) return fail(res, "INVALID_TOKEN_OR_WORKSPACE", 403);
-  return { workspace_id: String(workspaceId) };
+function normalizeStage(v: any) {
+  const s = String(v || "Novo").trim();
+  return ALLOWED_STAGES.has(s) ? s : "Novo";
 }
 
-// DB status -> UI stage (pipeline)
-function statusToStage(status: any): string {
-  const s = String(status || "Novo").trim().toLowerCase();
+function parseBody(req: any) {
+  const raw = req?.body;
 
-  // PT-BR do banco
-  if (s === "novo") return "novo";
-  if (s === "qualificando" || s === "qualificado") return "qualificando";
-  if (s === "proposta") return "proposta";
-  if (s === "follow-up" || s === "follow up" || s === "followup") return "follow-up";
-  if (s === "agendado") return "proposta"; // se seu pipeline não tem "agendado", mapeia pra proposta
-  if (s === "fechado" || s === "ganhou") return "ganhou";
-  if (s === "perdido") return "perdido";
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
 
-  // Se já vier no formato do pipeline
-  if (["novo","qualificando","proposta","follow-up","ganhou","perdido"].includes(s)) return s;
+  // Vercel costuma entregar string
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
 
-  return "novo";
+  return {};
 }
 
-// UI stage -> DB status (pra PATCH do pipeline)
-function stageToStatus(stage: any): string {
-  const s = String(stage || "novo").trim().toLowerCase();
-  if (s === "novo") return "Novo";
-  if (s === "qualificando") return "Qualificando";
-  if (s === "proposta") return "Proposta";
-  if (s === "follow-up" || s === "follow up" || s === "followup") return "Follow-up";
-  if (s === "ganhou") return "Fechado";
-  if (s === "perdido") return "Perdido";
-  return "Novo";
-}
+// Lista segura (evita vazar campos futuros)
+const LEADS_SELECT =
+  "id, client_id, name, phone, notes, status, tags, score, source, last_message, last_message_at, created_at, updated_at";
+
+const mapLead = (l: any) => ({
+  ...l,
+  workspace_id: l.client_id,
+  stage: normalizeStage(l.status),
+  status: normalizeStage(l.status),
+});
 
 export default async function handler(req: any, res: any) {
-  cors(res);
+  setCors(res);
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const auth = await requireAuth(req, res);
   if (!auth) return;
 
-  const sb = supabaseAdmin();
-  const client_id = auth.workspace_id; // no seu schema, workspace_id = clients.id
+  const sb = await supabaseAdmin();
+  const client_id = auth.workspace_id;
 
-  try {
-    if (req.method === "GET") {
-      const { data, error } = await sb
-        .from("leads")
-        .select("*")
-        .eq("client_id", client_id)
-        .order("created_at", { ascending: false });
+  if (req.method === "GET") {
+    const { data, error } = await sb
+      .from("leads")
+      .select(LEADS_SELECT)
+      .eq("client_id", client_id)
+      .order("created_at", { ascending: false });
 
-      if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
-
-      const mapped = (data ?? []).map((l: any) => ({
-        ...l,
-        workspace_id: l.client_id,
-        stage: statusToStage(l.status), // <<< FIX pipeline
-        status: l.status ?? "Novo",
-      }));
-
-      return ok(res, mapped);
-    }
-
-    if (req.method === "POST") {
-      const body = req.body || {};
-      const name = body?.name ?? null;
-      const phone = body?.phone ?? null;
-
-      const status = stageToStatus(body?.stage ?? body?.status ?? "novo");
-
-      const { data, error } = await sb
-        .from("leads")
-        .insert({ client_id, name, phone, status })
-        .select("*")
-        .maybeSingle();
-
-      if (error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: error });
-
-      return ok(
-        res,
-        {
-          ...data,
-          workspace_id: data.client_id,
-          stage: statusToStage(data.status),
-          status: data.status ?? "Novo",
-        },
-        201
-      );
-    }
-
-    if (req.method === "PATCH") {
-      const leadId = req.query?.id;
-      if (!leadId) return fail(res, "MISSING_LEAD_ID", 400);
-
-      const body = req.body || {};
-      const status = stageToStatus(body?.stage ?? body?.status);
-      if (!status) return fail(res, "MISSING_STAGE", 400);
-
-      const { data, error } = await sb
-        .from("leads")
-        .update({ status })
-        .eq("id", leadId)
-        .eq("client_id", client_id)
-        .select("*")
-        .maybeSingle();
-
-      if (error) return fail(res, "LEAD_UPDATE_FAILED", 500, { details: error });
-      if (!data) return fail(res, "LEAD_NOT_FOUND", 404);
-
-      return ok(res, {
-        ...data,
-        workspace_id: data.client_id,
-        stage: statusToStage(data.status),
-        status: data.status ?? "Novo",
-      });
-    }
-
-    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
-  } catch (e: any) {
-    return fail(res, "LEADS_CRASH", 500, { details: String(e?.message || e) });
+    if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
+    return ok(res, (data ?? []).map(mapLead));
   }
+
+  if (req.method === "POST") {
+    const body = parseBody(req);
+
+    const name = String(body?.name ?? "").trim();
+    const phone = String(body?.phone ?? "").trim();
+
+    if (!name) return fail(res, "MISSING_NAME", 400);
+    if (!phone) return fail(res, "MISSING_PHONE", 400);
+
+    const notes = body?.notes ?? null;
+    const tags = body?.tags ?? null;
+
+    const status = normalizeStage(body?.status ?? body?.stage ?? "Novo");
+
+    const payload: any = {
+      client_id,
+      name,
+      phone,
+      notes,
+      status,
+      tags,
+    };
+
+    // opcionais (se existirem no schema)
+    if (body?.score !== undefined) payload.score = body.score;
+    if (body?.source !== undefined) payload.source = body.source;
+
+    const { data, error } = await sb
+      .from("leads")
+      .insert(payload)
+      .select(LEADS_SELECT)
+      .maybeSingle();
+
+    if (error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: error });
+
+    return ok(res, mapLead(data), 201);
+  }
+
+  if (req.method === "PATCH") {
+    const leadId = req.query?.id;
+    if (!leadId) return fail(res, "MISSING_LEAD_ID", 400);
+
+    const body = parseBody(req);
+
+    const stageOrStatus = body?.status ?? body?.stage;
+    if (!stageOrStatus) return fail(res, "MISSING_STAGE", 400);
+
+    const status = normalizeStage(stageOrStatus);
+
+    const update: any = { status };
+
+    // updates permitidos (sem abrir geral)
+    if (body?.name !== undefined) update.name = body.name;
+    if (body?.phone !== undefined) update.phone = body.phone;
+    if (body?.notes !== undefined) update.notes = body.notes;
+    if (body?.tags !== undefined) update.tags = body.tags;
+
+    const { data, error } = await sb
+      .from("leads")
+      .update(update)
+      .eq("id", leadId)
+      .eq("client_id", client_id)
+      .select(LEADS_SELECT)
+      .maybeSingle();
+
+    if (error) return fail(res, "LEAD_UPDATE_FAILED", 500, { details: error });
+    if (!data) return fail(res, "LEAD_NOT_FOUND", 404);
+
+    return ok(res, mapLead(data));
+  }
+
+  return fail(res, "METHOD_NOT_ALLOWED", 405);
 }
