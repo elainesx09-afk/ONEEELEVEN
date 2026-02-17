@@ -31,47 +31,6 @@ function safeInitials(name?: string | null) {
   return parts.slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || 'L';
 }
 
-/**
- * NORMALIZAÇÃO CRÍTICA:
- * Garante que qualquer stage/status vindo da API vire um dos 6 IDs do Pipeline.
- */
-function normalizePipelineStage(input: any): PipelineStage {
-  const raw = String(input ?? 'Novo').trim();
-
-  // já está no formato exato do Pipeline
-  if (
-    raw === 'Novo' ||
-    raw === 'Em atendimento' ||
-    raw === 'Qualificado' ||
-    raw === 'Agendado' ||
-    raw === 'Fechado' ||
-    raw === 'Perdido'
-  ) return raw;
-
-  const s = raw.toLowerCase();
-
-  // formatos comuns (db / api / demo / variações)
-  if (s === 'novo') return 'Novo';
-
-  // “qualificando” e variações = em atendimento
-  if (s === 'qualificando' || s === 'em atendimento' || s === 'atendimento') return 'Em atendimento';
-
-  // “qualificado” e variações
-  if (s === 'qualificado') return 'Qualificado';
-
-  // proposta costuma ser pós-qualificação
-  if (s === 'proposta') return 'Qualificado';
-
-  // follow-up geralmente depois de proposta (ou antes de agendar)
-  if (s === 'follow-up' || s === 'follow up' || s === 'followup') return 'Agendado';
-
-  if (s === 'agendado') return 'Agendado';
-  if (s === 'fechado' || s === 'ganhou') return 'Fechado';
-  if (s === 'perdido') return 'Perdido';
-
-  return 'Novo';
-}
-
 export default function Pipeline() {
   const { currentWorkspace } = useWorkspace();
   const qc = useQueryClient();
@@ -80,6 +39,7 @@ export default function Pipeline() {
     queryKey: ['leads', currentWorkspace.id],
     queryFn: async () => {
       const r = await api.leads();
+      // não quebra a UI se der erro: só zera
       if (!r.ok) return [] as Lead[];
       return r.data ?? [];
     },
@@ -104,27 +64,23 @@ export default function Pipeline() {
 
   const leadsState = useMemo(() => {
     const raw = leadsQuery.data ?? [];
-    return raw.map((l: any) => {
-      const normalizedStage = normalizePipelineStage(l.stage ?? l.status ?? 'Novo');
-
-      return {
-        ...l,
-        name: l.name ?? l.full_name ?? l.nome ?? 'Lead',
-        phone: l.phone ?? l.number ?? l.whatsapp ?? '',
-        stage: normalizedStage,
-        score: typeof l.score === 'number' ? l.score : 50,
-        lastMessage: l.lastMessage ?? l.last_message ?? l.last_message_text ?? '',
-        lastMessageAt: l.lastMessageAt ?? l.last_message_at ?? l.updated_at ?? l.created_at ?? '',
-        nextAction: l.nextAction ?? l.next_action ?? '',
-        tags: Array.isArray(l.tags) ? l.tags : [],
-        needsFollowUp: !!(l.needsFollowUp ?? l.needs_follow_up),
-        source: l.source ?? l.origem ?? '—',
-      };
-    }) as any[];
+    return raw.map((l: any) => ({
+      ...l,
+      name: l.name ?? l.full_name ?? l.nome ?? 'Lead',
+      phone: l.phone ?? l.number ?? l.whatsapp ?? '',
+      stage: (l.stage ?? l.status ?? 'Novo') as PipelineStage,
+      score: typeof l.score === 'number' ? l.score : 50,
+      lastMessage: l.lastMessage ?? l.last_message ?? l.last_message_text ?? '',
+      lastMessageAt: l.lastMessageAt ?? l.last_message_at ?? l.updated_at ?? l.created_at ?? '',
+      nextAction: l.nextAction ?? l.next_action ?? '',
+      tags: Array.isArray(l.tags) ? l.tags : [],
+      needsFollowUp: !!(l.needsFollowUp ?? l.needs_follow_up),
+      source: l.source ?? l.origem ?? '—',
+    })) as any[];
   }, [leadsQuery.data]);
 
   const getLeadsByStage = (stage: PipelineStage) =>
-    leadsState.filter((l) => normalizePipelineStage(l.stage ?? 'Novo') === stage);
+    leadsState.filter((l) => (l.stage ?? 'Novo') === stage);
 
   const handleDragStart = (leadId: string) => setDraggedLead(leadId);
 
