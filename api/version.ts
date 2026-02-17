@@ -1,45 +1,80 @@
 // api/version.ts
-export default function handler(req: any, res: any) {
-  try {
-    // CORS (sem depender de _lib)
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-token, workspace_id");
+import { setCors, ok, fail } from "./_lib/response";
+import { supabaseAdmin } from "./_lib/supabaseAdmin";
 
-    if (req.method === "OPTIONS") return res.status(204).end();
-    if (req.method !== "GET") {
-      return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+export default async function handler(req: any, res: any) {
+  setCors(res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "GET")
+    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+
+  try {
+    const token = String(req.headers["x-api-token"] || "").trim();
+    const workspaceId = String(req.headers["workspace_id"] || "").trim();
+
+    const sb = await supabaseAdmin();
+
+    // base info (sempre)
+    const base: any = {
+      name: "one-eleven-api",
+      now: new Date().toISOString(),
+      sha: process.env.VERCEL_GIT_COMMIT_SHA || null,
+      branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+      env: process.env.VERCEL_ENV || null,
+      headers: {
+        token_present: !!token,
+        workspace_present: !!workspaceId,
+        workspace_id_received: workspaceId || null,
+        token_prefix: token ? token.slice(0, 10) : null,
+      },
+      envs_present: {
+        SUPABASE_URL: !!process.env.SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+      tenant: {
+        token_valid: false,
+        workspace_valid_for_token: false,
+      },
+      workspaces: [] as Array<{ id: string; name: string; created_at?: string | null }>,
+    };
+
+    // Sem token: devolve só o base
+    if (!token) return ok(res, base);
+
+    // Lista workspaces permitidos pelo token (join)
+    // Esperado:
+    // api_tokens(token, workspace_id, is_active) -> FK workspace_id -> workspaces.id
+    const { data, error } = await sb
+      .from("api_tokens")
+      .select("workspace_id, workspaces:workspaces(id,name,created_at)")
+      .eq("token", token)
+      .eq("is_active", true);
+
+    if (error) return fail(res, "TOKEN_LOOKUP_FAILED", 500, { details: error });
+
+    const rows = data ?? [];
+    const list = rows
+      .map((r: any) => {
+        const w = r.workspaces;
+        if (!w?.id) return null;
+        return {
+          id: String(w.id),
+          name: String(w.name || "Workspace"),
+          created_at: w.created_at ? String(w.created_at) : null,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    base.tenant.token_valid = list.length > 0;
+    base.workspaces = list;
+
+    // Valida se o workspace_id atual pertence ao token
+    if (workspaceId) {
+      base.tenant.workspace_valid_for_token = list.some((w: any) => String(w.id) === workspaceId);
     }
 
-    const token = req.headers["x-api-token"] || null;
-    const workspace_id = req.headers["workspace_id"] || null;
-
-    return res.status(200).json({
-      ok: true,
-      data: {
-        name: "one-eleven-api",
-        now: new Date().toISOString(),
-        sha: process.env.VERCEL_GIT_COMMIT_SHA || null,
-        branch: process.env.VERCEL_GIT_COMMIT_REF || null,
-        env: process.env.VERCEL_ENV || null,
-        headers: {
-          token_present: Boolean(token),
-          workspace_present: Boolean(workspace_id),
-          workspace_id_received: workspace_id,
-          token_prefix: token ? String(token).slice(0, 12) + "..." : null,
-        },
-        envs_present: {
-          SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
-          SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-        },
-      },
-    });
+    return ok(res, base);
   } catch (e: any) {
-    return res.status(500).json({
-      ok: false,
-      error: "VERSION_CRASH",
-      details: String(e?.message || e),
-      stack: e?.stack ? String(e.stack).slice(0, 800) : null,
-    });
+    return fail(res, "VERSION_CRASH", 500, { details: String(e?.message || e) });
   }
 }
