@@ -1,26 +1,19 @@
 // src/lib/api.ts
-import { getTenant } from '@/lib/tenant';
+import { getTenant } from "@/lib/tenant";
 
-const API_BASE_URL =
-  (import.meta as any).env?.VITE_API_BASE_URL || '';
-
-// Fallback (build-time) — continua funcionando
-const FALLBACK_TOKEN =
-  String((import.meta as any).env?.VITE_API_TOKEN || '');
-const FALLBACK_WORKSPACE =
-  String((import.meta as any).env?.VITE_WORKSPACE_ID || '');
+const API_BASE_URL = String((import.meta as any).env?.VITE_API_BASE_URL || "");
 
 export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; debugId?: string; details?: any };
 
 export type LeadStage =
-  | 'Novo'
-  | 'Em atendimento'
-  | 'Qualificado'
-  | 'Agendado'
-  | 'Fechado'
-  | 'Perdido';
+  | "Novo"
+  | "Em atendimento"
+  | "Qualificado"
+  | "Agendado"
+  | "Fechado"
+  | "Perdido";
 
 export type Lead = {
   id: string;
@@ -38,20 +31,24 @@ export type Message = {
   id: string;
   lead_id: string;
   body: string;
-  direction: 'in' | 'out';
+  direction: "in" | "out";
   created_at?: string | null;
   [k: string]: any;
 };
 
 function buildHeaders() {
-  // prioridade: runtime tenant (localStorage)
   const t = getTenant();
-  const token = t.token || FALLBACK_TOKEN;
-  const workspaceId = t.workspaceId || FALLBACK_WORKSPACE;
 
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) h['x-api-token'] = token;
-  if (workspaceId) h['workspace_id'] = workspaceId;
+  const h: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  // token é obrigatório para /api/workspaces e pro resto do SaaS
+  if (t.token) h["x-api-token"] = t.token;
+
+  // workspace_id é obrigatório para endpoints multi-tenant (leads/messages/overview)
+  if (t.workspaceId) h["workspace_id"] = t.workspaceId;
+
   return h;
 }
 
@@ -61,19 +58,17 @@ async function request<T>(
 ): Promise<ApiResult<T>> {
   try {
     const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: opts?.method || 'GET',
+      method: opts?.method || "GET",
       headers: buildHeaders(),
       body: opts?.body ? JSON.stringify(opts.body) : undefined,
     });
 
     const json = await res.json().catch(() => null);
 
-    // backend padrão: { ok:true, data } ou { ok:false, error, debugId, details }
     if (json?.ok === true) return { ok: true, data: json.data as T };
 
     const errMsg =
-      json?.error ||
-      (res.ok ? 'UNKNOWN_ERROR' : `HTTP_${res.status}`);
+      json?.error || (res.ok ? "UNKNOWN_ERROR" : `HTTP_${res.status}`);
 
     return {
       ok: false,
@@ -82,29 +77,46 @@ async function request<T>(
       details: json?.details,
     };
   } catch (e: any) {
-    return { ok: false, error: 'NETWORK_ERROR', details: String(e?.message || e) };
+    return {
+      ok: false,
+      error: "NETWORK_ERROR",
+      details: String(e?.message || e),
+    };
   }
 }
 
 export const api = {
-  version: () => request<any>('/api/version'),
+  version: () => request<any>("/api/version"),
+  overview: () => request<any>("/api/overview"),
 
-  overview: () => request<any>('/api/overview'),
+  // ✅ novo
+  workspaces: () => request<any[]>("/api/workspaces"),
 
-  leads: () => request<Lead[]>('/api/leads'),
+  leads: () => request<Lead[]>("/api/leads"),
 
-  createLead: (body: { name?: string; phone?: string; notes?: string; status?: string; stage?: string; tags?: any }) =>
-    request<Lead>('/api/leads', { method: 'POST', body }),
+  createLead: (body: {
+    name?: string;
+    phone?: string;
+    notes?: string;
+    status?: string;
+    stage?: string;
+    tags?: any;
+  }) => request<Lead>("/api/leads", { method: "POST", body }),
 
   updateLeadStage: (leadId: string, stage: LeadStage) =>
     request<Lead>(`/api/leads?id=${encodeURIComponent(leadId)}`, {
-      method: 'PATCH',
+      method: "PATCH",
       body: { stage },
     }),
 
   messages: (lead_id: string) =>
-    request<Message[]>(`/api/messages?lead_id=${encodeURIComponent(lead_id)}`),
+    request<Message[]>(
+      `/api/messages?lead_id=${encodeURIComponent(lead_id)}`
+    ),
 
   sendMessage: (lead_id: string, body: string) =>
-    request<Message>('/api/messages', { method: 'POST', body: { lead_id, body } }),
+    request<Message>("/api/messages", {
+      method: "POST",
+      body: { lead_id, body },
+    }),
 };
