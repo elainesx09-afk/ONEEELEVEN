@@ -5,8 +5,7 @@ import { supabaseAdmin } from "./_lib/supabaseAdmin.js";
 export default async function handler(req, res) {
   setCors(res);
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET")
-    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
   const auth = await requireAuth(req, res);
   if (!auth) return;
@@ -44,6 +43,6 @@ export default async function handler(req, res) {
     hot_leads: hotLeads,
     conversion_rate: conversionRate,
     followup_conversions: 0,
-    roi_estimated: 0,
+    roi_estimated: 0
   });
 }
