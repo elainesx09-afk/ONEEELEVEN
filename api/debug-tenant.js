@@ -1,11 +1,15 @@
-// api/debug-tenant.js
-export default async function handler(req, res) {
+// api/debug-tenant.ts
+export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-token, workspace_id");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, x-api-token, workspace_id"
+  );
 
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+  if (req.method !== "GET")
+    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
   const token = req.headers["x-api-token"] || null;
   const workspace = req.headers["workspace_id"] || null;
