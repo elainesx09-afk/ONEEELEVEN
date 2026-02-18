@@ -1,27 +1,14 @@
-// api/inbound.ts
-// INBOUND MVP: recebe payload (n8n/Evolution) e salva lead + message no Supabase.
-//
-// Segurança (recomendado):
-// - Se INBOUND_SECRET existir nas envs, exige header: x-inbound-secret.
-// - Se não existir, exige auth normal (x-api-token + workspace_id).
+// api/inbound.ts (DEBUG + MVP)
+// - GET: healthcheck no navegador (não crasha)
+// - POST: inbound real (com secret opcional)
+// - Nunca deixa crashar sem JSON (retorna fail com debug)
 
 import { setCors, ok, fail } from "./_lib/response";
-import { requireAuth } from "./_lib/auth";
-import { supabaseAdmin } from "./_lib/supabaseAdmin";
-
-type InboundPayload = {
-  workspace_id?: string;
-  lead?: { name?: string | null; phone?: string | null; status?: string | null; stage?: string | null };
-  message?: { body?: string | null; direction?: "in" | "out" | null; created_at?: string | null };
-  [k: string]: any;
-};
 
 function normalizePhone(v: any) {
   return String(v || "").trim().replace(/\D+/g, "");
 }
 
-// Ajuste fino: tem check constraint no seu banco.
-// Mantém só o que é permitido e cai pra "Novo" caso venha diferente.
 const ALLOWED_STATUS = new Set([
   "Novo",
   "Em atendimento",
@@ -36,46 +23,104 @@ function safeStatus(v: any) {
   return ALLOWED_STATUS.has(s) ? s : "Novo";
 }
 
+async function getSupabase() {
+  // import dinâmico pra não derrubar a function se o path estiver errado
+  try {
+    const mod = await import("./_lib/supabaseAdmin");
+    return { ok: true as const, supabaseAdmin: mod.supabaseAdmin };
+  } catch (e: any) {
+    return { ok: false as const, error: String(e?.message || e), stack: String(e?.stack || "") };
+  }
+}
+
+async function getAuth() {
+  try {
+    const mod = await import("./_lib/auth");
+    return { ok: true as const, requireAuth: mod.requireAuth };
+  } catch (e: any) {
+    return { ok: false as const, error: String(e?.message || e), stack: String(e?.stack || "") };
+  }
+}
+
 export default async function handler(req: any, res: any) {
   setCors(res);
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+
+  const envs = {
+    SUPABASE_URL: !!process.env.SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    INBOUND_SECRET: !!String(process.env.INBOUND_SECRET || "").trim(),
+    VERCEL_ENV: process.env.VERCEL_ENV || null,
+    sha: process.env.VERCEL_GIT_COMMIT_SHA || null,
+  };
+
+  // ✅ GET: teste no navegador (não deveria ser 500)
+  if (req.method === "GET") {
+    const sb = await getSupabase();
+    const au = await getAuth();
+
+    return ok(res, {
+      route: "/api/inbound",
+      method: "GET",
+      envs,
+      imports: {
+        supabaseAdmin: sb.ok ? "ok" : { ok: false, error: sb.error },
+        auth: au.ok ? "ok" : { ok: false, error: au.error },
+      },
+      note: "POST required for real inbound. Use x-inbound-secret if INBOUND_SECRET is set.",
+    });
+  }
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+  }
+
+  // imports
+  const sbImp = await getSupabase();
+  if (!sbImp.ok) return fail(res, "IMPORT_SUPABASEADMIN_FAILED", 500, { details: sbImp });
 
   const inboundSecret = String(process.env.INBOUND_SECRET || "").trim();
+  let workspace_id: string | null = null;
+
+  // se tiver secret, exige secret
   if (inboundSecret) {
     const received = String(req.headers["x-inbound-secret"] || "").trim();
     if (!received) return fail(res, "MISSING_INBOUND_SECRET", 401);
     if (received !== inboundSecret) return fail(res, "INVALID_INBOUND_SECRET", 403);
-  }
+  } else {
+    // se não tiver secret, exige auth normal
+    const auImp = await getAuth();
+    if (!auImp.ok) return fail(res, "IMPORT_AUTH_FAILED", 500, { details: auImp });
 
-  // workspace_id
-  let workspace_id: string | null = null;
-
-  // Se não tiver secret, exige headers normais
-  if (!inboundSecret) {
-    const auth = await requireAuth(req, res);
+    const auth = await auImp.requireAuth(req, res);
     if (!auth) return;
     workspace_id = auth.workspace_id;
   }
 
-  let body: InboundPayload = {} as any;
-  try { body = (req.body || {}) as any; } catch { body = {} as any; }
+  // body
+  let body: any = {};
+  try { body = req.body || {}; } catch { body = {}; }
 
   if (body.workspace_id) workspace_id = String(body.workspace_id);
   if (!workspace_id) return fail(res, "MISSING_WORKSPACE_ID", 400);
 
   const client_id = workspace_id;
 
-  const sb = await supabaseAdmin();
-
-  // LEAD
   const phone = normalizePhone(body?.lead?.phone);
   if (!phone) return fail(res, "MISSING_LEAD_PHONE", 400);
 
   const name = body?.lead?.name ? String(body.lead.name) : null;
   const status = safeStatus(body?.lead?.status || body?.lead?.stage || "Novo");
 
-  // 1) tenta achar lead existente por (client_id + phone)
+  const msgBody = body?.message?.body ? String(body.message.body) : null;
+  if (!msgBody) return fail(res, "MISSING_MESSAGE_BODY", 400);
+
+  const direction = body?.message?.direction === "out" ? "out" : "in";
+  const created_at = body?.message?.created_at ? String(body.message.created_at) : null;
+
+  const sb = await sbImp.supabaseAdmin();
+
+  // lookup lead
   const { data: existing, error: findErr } = await sb
     .from("leads")
     .select("id, name")
@@ -87,36 +132,22 @@ export default async function handler(req: any, res: any) {
 
   let lead_id: string | null = existing?.id || null;
 
-  // 2) cria se não existe
   if (!lead_id) {
     const { data: created, error: insErr } = await sb
       .from("leads")
-      .insert({
-        client_id,
-        name,
-        phone,
-        status,
-      })
+      .insert({ client_id, name, phone, status })
       .select("*")
       .maybeSingle();
 
     if (insErr) return fail(res, "LEAD_INSERT_FAILED", 500, { details: insErr });
     lead_id = created?.id || null;
   } else {
-    // opcional: preencher nome se tava vazio
     if (name && (!existing?.name || String(existing.name).trim() === "")) {
       await sb.from("leads").update({ name }).eq("id", lead_id).eq("client_id", client_id);
     }
   }
 
   if (!lead_id) return fail(res, "LEAD_ID_MISSING_AFTER_UPSERT", 500);
-
-  // MESSAGE
-  const msgBody = body?.message?.body ? String(body.message.body) : null;
-  if (!msgBody) return fail(res, "MISSING_MESSAGE_BODY", 400);
-
-  const direction = body?.message?.direction === "out" ? "out" : "in";
-  const created_at = body?.message?.created_at ? String(body.message.created_at) : null;
 
   const { data: msg, error: msgErr } = await sb
     .from("messages")
