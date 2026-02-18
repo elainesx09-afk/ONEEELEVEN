@@ -1,5 +1,4 @@
 import { setCors, ok, fail } from "./_lib/response.js";
-import { supabaseAdmin } from "./_lib/supabaseAdmin.js";
 
 export default async function handler(req, res) {
   setCors(res);
@@ -7,9 +6,8 @@ export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
   try {
-    // validate envs + supabase connectivity quickly
-    await supabaseAdmin();
     return ok(res, {
+      ok: true,
       now: new Date().toISOString(),
       envs_present: {
         SUPABASE_URL: !!process.env.SUPABASE_URL,
