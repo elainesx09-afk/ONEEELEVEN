@@ -1,22 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 
-let _sb = null;
+let _client = null;
 
 export async function supabaseAdmin() {
-  if (_sb) return _sb;
+  if (_client) return _client;
 
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url) throw new Error("MISSING_SUPABASE_URL");
-  if (!key) throw new Error("MISSING_SUPABASE_SERVICE_ROLE_KEY");
+  if (!url) throw new Error("Missing SUPABASE_URL on server");
+  if (!key) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY on server");
 
-  _sb = createClient(url, key, {
+  _client = createClient(url, key, {
     auth: { persistSession: false },
-    global: {
-      headers: { "X-Client-Info": "one-eleven-api" }
-    }
   });
 
-  return _sb;
+  return _client;
 }

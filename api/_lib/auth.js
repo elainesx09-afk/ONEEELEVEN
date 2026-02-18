@@ -1,6 +1,11 @@
 import { supabaseAdmin } from "./supabaseAdmin.js";
 import { fail } from "./response.js";
 
+/**
+ * Auth MVP:
+ * - expects headers: x-api-token + workspace_id
+ * - validates token exists, active, and bound to that workspace_id in public.api_tokens
+ */
 export async function requireAuth(req, res) {
   const token = req.headers["x-api-token"];
   const workspaceId = req.headers["workspace_id"];
