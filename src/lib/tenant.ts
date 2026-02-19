@@ -1,99 +1,53 @@
 // src/lib/tenant.ts
+type Tenant = { token: string; workspaceId: string };
+
 const LS_TOKEN = "oneeleven_api_token";
 const LS_WORKSPACE = "oneeleven_workspace_id";
 
-export type Tenant = {
-  token: string;
-  workspaceId: string;
-};
-
-function clean(v: any) {
-  return String(v ?? "").trim();
-}
-
-/**
- * Permite setar tenant via URL sem criar tela:
- * ?token=...&workspace=...
- * Aceita também: workspace_id, wid
- */
-export function applyTenantFromUrl(): boolean {
-  try {
-    const url = new URL(window.location.href);
-    const sp = url.searchParams;
-
-    const token =
-      clean(sp.get("token")) ||
-      clean(sp.get("x-api-token")) ||
-      "";
-
-    const workspaceId =
-      clean(sp.get("workspace")) ||
-      clean(sp.get("workspace_id")) ||
-      clean(sp.get("wid")) ||
-      "";
-
-    const hasAny = !!(token || workspaceId);
-    if (!hasAny) return false;
-
-    if (token) localStorage.setItem(LS_TOKEN, token);
-    if (workspaceId) localStorage.setItem(LS_WORKSPACE, workspaceId);
-
-    // remove parâmetros sensíveis da URL
-    sp.delete("token");
-    sp.delete("x-api-token");
-    sp.delete("workspace");
-    sp.delete("workspace_id");
-    sp.delete("wid");
-
-    const newUrl =
-      url.pathname + (sp.toString() ? `?${sp.toString()}` : "") + url.hash;
-
-    window.history.replaceState({}, "", newUrl);
-    return true;
-  } catch {
-    return false;
-  }
+function envStr(key: string) {
+  return String((import.meta as any).env?.[key] || "").trim();
 }
 
 export function getTenant(): Tenant {
-  try {
-    const token =
-      clean(localStorage.getItem(LS_TOKEN)) ||
-      clean((import.meta as any).env?.VITE_API_TOKEN) ||
-      "";
+  const tokenLS = String(localStorage.getItem(LS_TOKEN) || "").trim();
+  const wsLS = String(localStorage.getItem(LS_WORKSPACE) || "").trim();
 
-    const workspaceId =
-      clean(localStorage.getItem(LS_WORKSPACE)) ||
-      clean((import.meta as any).env?.VITE_WORKSPACE_ID) ||
-      "";
+  const tokenEnv = envStr("VITE_API_TOKEN");
+  const wsEnv = envStr("VITE_WORKSPACE_ID");
 
-    return { token, workspaceId };
-  } catch {
-    return {
-      token: clean((import.meta as any).env?.VITE_API_TOKEN),
-      workspaceId: clean((import.meta as any).env?.VITE_WORKSPACE_ID),
-    };
-  }
+  return {
+    token: tokenLS || tokenEnv,
+    workspaceId: wsLS || wsEnv,
+  };
 }
 
-export function setTenant(partial: Partial<Tenant>) {
-  try {
-    if (typeof partial.token === "string") {
-      localStorage.setItem(LS_TOKEN, clean(partial.token));
-    }
-    if (typeof partial.workspaceId === "string") {
-      localStorage.setItem(LS_WORKSPACE, clean(partial.workspaceId));
-    }
-  } catch {
-    // ignora
+/**
+ * Garante que o tenant exista no runtime.
+ * Regra:
+ * - Se localStorage estiver vazio, popula com VITE_*.
+ * - Não sobrescreve se o user já trocou o workspace.
+ */
+export function ensureTenantInitialized() {
+  const tokenLS = String(localStorage.getItem(LS_TOKEN) || "").trim();
+  const wsLS = String(localStorage.getItem(LS_WORKSPACE) || "").trim();
+
+  const tokenEnv = envStr("VITE_API_TOKEN");
+  const wsEnv = envStr("VITE_WORKSPACE_ID");
+
+  if (!tokenLS && tokenEnv) localStorage.setItem(LS_TOKEN, tokenEnv);
+  if (!wsLS && wsEnv) localStorage.setItem(LS_WORKSPACE, wsEnv);
+}
+
+export function setTenant(next: Partial<Tenant>) {
+  if (typeof next.token === "string") {
+    localStorage.setItem(LS_TOKEN, next.token.trim());
+  }
+  if (typeof next.workspaceId === "string") {
+    localStorage.setItem(LS_WORKSPACE, next.workspaceId.trim());
   }
 }
 
 export function clearTenant() {
-  try {
-    localStorage.removeItem(LS_TOKEN);
-    localStorage.removeItem(LS_WORKSPACE);
-  } catch {
-    // ignora
-  }
+  localStorage.removeItem(LS_TOKEN);
+  localStorage.removeItem(LS_WORKSPACE);
 }
