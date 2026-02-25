@@ -1,4 +1,15 @@
 // api/inbound.js
+// ============================================================
+// OBJETIVO: Receber mensagens do n8n INBOUND_PIPELINE v2
+// FLUXO: Evolution → n8n → SaaS (este endpoint)
+// ============================================================
+// MUDANÇAS v2:
+// - Aceita external_id (idempotência)
+// - Aceita type, media_url, instance
+// - Aceita timestamp customizado
+// - Response no formato esperado pelo n8n
+// ============================================================
+
 import { setCors, ok, fail } from "./_lib/response.js";
 import { requireAuth } from "./_lib/auth.js";
 import { supabaseAdmin } from "./_lib/supabaseAdmin.js";
@@ -21,34 +32,10 @@ function safeStatus(v) {
   return ALLOWED_STATUS.has(s) ? s : "Novo";
 }
 
-async function getColumns(sb, table) {
-  // PostgREST schema cache: podemos inferir com 1 select vazio
-  // Se der PGRST204 em coluna, tratamos no lugar certo.
-  // Aqui deixamos simples: retorna null e fazemos fallback por tentativa.
-  return null;
-}
-
-async function insertMessage(sb, payload) {
-  // tenta body, se schema não tiver, tenta text
-  const { data, error } = await sb.from("messages").insert(payload).select("*").maybeSingle();
-  if (!error) return { data, error: null };
-
-  // se body não existe (PGRST204), tenta trocar para text
-  if (error?.code === "PGRST204" && String(error?.message || "").includes("'body'")) {
-    const clone = { ...payload };
-    clone.text = clone.body;
-    delete clone.body;
-    const retry = await sb.from("messages").insert(clone).select("*").maybeSingle();
-    return { data: retry.data, error: retry.error || null };
-  }
-
-  return { data: null, error };
-}
-
 async function findLeadByPhone(sb, client_id, phone, phoneCol) {
   const { data, error } = await sb
     .from("leads")
-    .select("id, name")
+    .select("id, name, instance")
     .eq("client_id", client_id)
     .eq(phoneCol, phone)
     .maybeSingle();
@@ -56,31 +43,89 @@ async function findLeadByPhone(sb, client_id, phone, phoneCol) {
 }
 
 async function createLead(sb, payload, phoneCol) {
-  // payload contém phone em payload.phone sempre
-  // mas a coluna real pode ser number/whatsapp
   const row = { ...payload };
   if (phoneCol !== "phone") {
     row[phoneCol] = row.phone;
     delete row.phone;
   }
 
-  const { data, error } = await sb.from("leads").insert(row).select("*").maybeSingle();
+  const { data, error } = await sb
+    .from("leads")
+    .insert(row)
+    .select("*")
+    .maybeSingle();
   return { data, error };
 }
 
+// ============================================================
+// FUNÇÃO PRINCIPAL: Verifica idempotência + insere mensagem
+// ============================================================
+async function insertMessageWithIdempotency(sb, payload) {
+  const { external_id, client_id } = payload;
+
+  // 1) Se tem external_id, verifica se já existe (IDEMPOTÊNCIA)
+  if (external_id) {
+    const { data: existing, error: checkErr } = await sb
+      .from("messages")
+      .select("id, lead_id")
+      .eq("client_id", client_id)
+      .eq("external_id", external_id)
+      .maybeSingle();
+
+    if (existing) {
+      console.log(`[INBOUND] Mensagem duplicada ignorada: ${external_id}`);
+      return { data: existing, error: null, isDuplicate: true };
+    }
+
+    if (checkErr && checkErr.code !== "PGRST116") {
+      // PGRST116 = not found, ok continuar
+      console.error("[INBOUND] Erro ao checar duplicação:", checkErr);
+    }
+  }
+
+  // 2) Tenta inserir com TODOS os campos
+  const { data, error } = await sb
+    .from("messages")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+
+  if (!error) return { data, error: null, isDuplicate: false };
+
+  // 3) FALLBACK: Se coluna não existe (PGRST204), remove campos extras
+  if (error?.code === "PGRST204") {
+    console.warn("[INBOUND] Colunas extras não existem, usando fallback...");
+    const fallbackPayload = {
+      client_id: payload.client_id,
+      lead_id: payload.lead_id,
+      direction: payload.direction,
+      body: payload.body,
+    };
+
+    const retry = await sb
+      .from("messages")
+      .insert(fallbackPayload)
+      .select("*")
+      .maybeSingle();
+
+    return { data: retry.data, error: retry.error, isDuplicate: false };
+  }
+
+  return { data: null, error, isDuplicate: false };
+}
+
+// ============================================================
+// HANDLER PRINCIPAL
+// ============================================================
 export default async function handler(req, res) {
   setCors(res);
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  // GET só debug (não é inbound real)
   if (req.method === "GET") {
     return ok(res, {
       route: "/api/inbound",
-      note: "Use POST para inbound real",
-      envs_present: {
-        SUPABASE_URL: !!process.env.SUPABASE_URL,
-        SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      },
+      note: "Use POST para inbound real (n8n INBOUND_PIPELINE v2)",
+      version: "2.0.0",
     });
   }
 
@@ -95,28 +140,44 @@ export default async function handler(req, res) {
   const client_id = auth.workspace_id;
 
   let body = {};
-  try { body = req.body || {}; } catch { body = {}; }
+  try {
+    body = req.body || {};
+  } catch {
+    body = {};
+  }
 
-  const phone = normalizePhone(body?.lead?.phone || body?.lead?.number || body?.lead?.whatsapp);
+  // ============================================================
+  // PARSING DO PAYLOAD n8n v2
+  // ============================================================
+  const phone = normalizePhone(
+    body?.lead?.phone || body?.lead?.number || body?.lead?.whatsapp
+  );
   const name = body?.lead?.name ? String(body.lead.name) : null;
   const status = safeStatus(body?.lead?.status || body?.lead?.stage || "Novo");
 
   const msgBody =
-    (body?.message?.body ?? body?.message?.text ?? body?.body ?? body?.text) != null
-      ? String(body?.message?.body ?? body?.message?.text ?? body?.body ?? body?.text)
+    (body?.message?.body ?? body?.message?.text ?? body?.body ?? body?.text) !=
+    null
+      ? String(
+          body?.message?.body ?? body?.message?.text ?? body?.body ?? body?.text
+        )
       : null;
 
   const direction = body?.message?.direction === "out" ? "out" : "in";
+  const msgType = body?.message?.type || "text";
+  const externalId = body?.message?.external_id || null;
+  const mediaUrl = body?.message?.media_url || null;
+  const instance = body?.message?.instance || body?.instance || null;
+  const customTimestamp = body?.message?.timestamp || null;
 
   if (!phone) return fail(res, "MISSING_LEAD_PHONE", 400);
   if (!msgBody) return fail(res, "MISSING_MESSAGE_BODY", 400);
 
-  // 1) Descobre qual coluna de telefone existe na tabela leads
-  // Tentamos na ordem mais comum: phone -> number -> whatsapp
+  // ============================================================
+  // 1) DESCOBRE COLUNA DE TELEFONE (compatibilidade)
+  // ============================================================
   const phoneCols = ["phone", "number", "whatsapp"];
   let phoneCol = "phone";
-
-  // tenta lookup com "phone"; se der PGRST204, troca coluna
   let existing = null;
 
   for (const col of phoneCols) {
@@ -126,37 +187,90 @@ export default async function handler(req, res) {
       existing = r.data || null;
       break;
     }
-    // se a coluna não existe, tenta próxima
-    if (r.error?.code === "PGRST204" && String(r.error?.message || "").includes(`'${col}'`)) {
+    if (
+      r.error?.code === "PGRST204" &&
+      String(r.error?.message || "").includes(`'${col}'`)
+    ) {
       continue;
     }
-    // erro real
     return fail(res, "LEAD_LOOKUP_FAILED", 500, { details: r.error });
   }
 
   let lead_id = existing?.id || null;
 
-  // 2) Se não existe, cria lead (com fallback contra corrida)
+  // ============================================================
+  // 2) CRIA LEAD SE NÃO EXISTE
+  // ============================================================
   if (!lead_id) {
-    const payload = { client_id, name, phone, status };
+    const payload = {
+      client_id,
+      name,
+      phone,
+      status,
+      instance, // Salva instance no lead
+      last_message_at: customTimestamp || new Date().toISOString(),
+    };
 
     const created = await createLead(sb, payload, phoneCol);
 
     if (created.error) {
-      // se falhou por possível corrida/unique, tenta achar de novo
+      // Possível race condition, tenta buscar novamente
       const again = await findLeadByPhone(sb, client_id, phone, phoneCol);
-      if (again.error) return fail(res, "LEAD_INSERT_FAILED", 500, { details: created.error });
+      if (again.error)
+        return fail(res, "LEAD_INSERT_FAILED", 500, { details: created.error });
       lead_id = again.data?.id || null;
     } else {
       lead_id = created.data?.id || null;
     }
+  } else {
+    // Atualiza last_message_at do lead existente
+    await sb
+      .from("leads")
+      .update({ 
+        last_message_at: customTimestamp || new Date().toISOString(),
+        instance: instance || existing.instance // Preserva instance se já existe
+      })
+      .eq("id", lead_id)
+      .eq("client_id", client_id);
   }
 
   if (!lead_id) return fail(res, "LEAD_ID_MISSING_AFTER_UPSERT", 500);
 
-  // 3) Insere mensagem (body ou text)
-  const msgInsert = await insertMessage(sb, { client_id, lead_id, direction, body: msgBody });
-  if (msgInsert.error) return fail(res, "MESSAGE_INSERT_FAILED", 500, { details: msgInsert.error });
+  // ============================================================
+  // 3) INSERE MENSAGEM COM IDEMPOTÊNCIA
+  // ============================================================
+  const msgPayload = {
+    client_id,
+    lead_id,
+    direction,
+    body: msgBody,
+    type: msgType,
+    external_id: externalId,
+    status: direction === "out" ? "sent" : null,
+    media_url: mediaUrl,
+    instance,
+    timestamp: customTimestamp,
+    created_at: customTimestamp || undefined, // Usa customTimestamp se fornecido
+  };
 
-  return ok(res, { client_id, lead_id, message_id: msgInsert.data?.id || null }, 201);
+  const msgInsert = await insertMessageWithIdempotency(sb, msgPayload);
+
+  if (msgInsert.error) {
+    return fail(res, "MESSAGE_INSERT_FAILED", 500, {
+      details: msgInsert.error,
+    });
+  }
+
+  // ============================================================
+  // 4) RESPONSE NO FORMATO n8n v2 ESPERA
+  // ============================================================
+  return ok(
+    res,
+    {
+      client_id,
+      lead_id,
+      message_id: msgInsert.data?.id || null,
+    },
+    msgInsert.isDuplicate ? 200 : 201
+  );
 }
