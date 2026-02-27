@@ -1,11 +1,13 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/leads/stale",           "destination": "/api/leads?route=stale" },
+    { "source": "/api/leads/:id/followup",     "destination": "/api/leads?route=followup&id=:id" },
+    { "source": "/api/messages/status",        "destination": "/api/messages?route=status" },
+    { "source": "/api/system/errors",          "destination": "/api/system?route=errors" },
+    { "source": "/api/workspaces",             "destination": "/api/clients?route=workspaces" },
+    { "source": "/(.*)",                       "destination": "/index.html" }
   ],
   "functions": {
-    "api/**/*.js": {
-      "maxDuration": 30
-    }
+    "api/**/*.js": { "maxDuration": 30 }
   }
 }
