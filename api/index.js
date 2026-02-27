@@ -7,20 +7,82 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const route = req.query?.route;
-  if (!route) return fail(res, "MISSING_ROUTE", 400);
 
-  const auth = await requireAuth(req, res);
-  if (!auth) return;
+  if (!route) {
+    return fail(res, "MISSING_ROUTE", 400);
+  }
 
-  const client_id = auth.workspace_id;
   const sb = await supabaseAdmin();
   if (!sb) return fail(res, "SUPABASE_NOT_AVAILABLE", 500);
 
   try {
 
-    // =====================================================
-    // CLIENTS
-    // =====================================================
+    // =========================
+    // 🔓 INBOUND PUBLIC (SEM AUTH)
+    // =========================
+    if (route === "inbound" && req.method === "POST") {
+      const body = req.body || {};
+
+      const phone = body.phone;
+      const message = body.message;
+      const client_id = body.client_id; // IMPORTANTE
+      const instance = body.instance || "demo";
+
+      if (!phone || !message || !client_id) {
+        return fail(res, "INVALID_PAYLOAD", 400);
+      }
+
+      // 1️⃣ Busca ou cria lead
+      let { data: lead } = await sb
+        .from("leads")
+        .select("*")
+        .eq("client_id", client_id)
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (!lead) {
+        const { data: newLead, error } = await sb
+          .from("leads")
+          .insert({
+            client_id,
+            phone,
+            name: "Novo Lead",
+            status: "Novo",
+            created_at: new Date().toISOString()
+          })
+          .select("*")
+          .maybeSingle();
+
+        if (error) return fail(res, "LEAD_CREATE_FAILED", 500);
+
+        lead = newLead;
+      }
+
+      // 2️⃣ Salva mensagem
+      const { error: msgError } = await sb
+        .from("messages")
+        .insert({
+          client_id,
+          lead_id: lead.id,
+          direction: "inbound",
+          content: message,
+          instance,
+          created_at: new Date().toISOString()
+        });
+
+      if (msgError) return fail(res, "MESSAGE_SAVE_FAILED", 500);
+
+      return ok(res, { success: true });
+    }
+
+    // =========================
+    // 🔒 ROTAS COM AUTH
+    // =========================
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+
+    const client_id = auth.workspace_id;
+
     if (route === "clients" && req.method === "GET") {
       const { data, error } = await sb
         .from("clients")
@@ -28,14 +90,11 @@ export default async function handler(req, res) {
         .eq("id", client_id)
         .maybeSingle();
 
-      if (error) return fail(res, "CLIENT_FETCH_FAILED", 500, { details: error });
+      if (error) return fail(res, "CLIENT_FETCH_FAILED", 500);
 
       return ok(res, data ? [data] : []);
     }
 
-    // =====================================================
-    // INSTANCES
-    // =====================================================
     if (route === "instances" && req.method === "GET") {
       const { data, error } = await sb
         .from("instances")
@@ -43,7 +102,7 @@ export default async function handler(req, res) {
         .eq("client_id", client_id)
         .order("created_at", { ascending: false });
 
-      if (error) return fail(res, "INSTANCES_FETCH_FAILED", 500, { details: error });
+      if (error) return fail(res, "INSTANCES_FETCH_FAILED", 500);
 
       return ok(res, data || []);
     }
@@ -65,14 +124,11 @@ export default async function handler(req, res) {
         .select("*")
         .maybeSingle();
 
-      if (error) return fail(res, "INSTANCE_CREATE_FAILED", 500, { details: error });
+      if (error) return fail(res, "INSTANCE_CREATE_FAILED", 500);
 
       return ok(res, data, 201);
     }
 
-    // =====================================================
-    // LEADS
-    // =====================================================
     if (route === "leads" && req.method === "GET") {
       const { data, error } = await sb
         .from("leads")
@@ -80,75 +136,9 @@ export default async function handler(req, res) {
         .eq("client_id", client_id)
         .order("created_at", { ascending: false });
 
-      if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
+      if (error) return fail(res, "LEADS_FETCH_FAILED", 500);
 
       return ok(res, data || []);
-    }
-
-    // =====================================================
-    // INBOUND (N8N → SAAS)
-    // =====================================================
-    if (route === "inbound" && req.method === "POST") {
-      const body = req.body || {};
-
-      const phone = body.phone;
-      const message = body.message;
-      const instance = body.instance;
-
-      if (!phone || !message) {
-        return fail(res, "INVALID_PAYLOAD", 400);
-      }
-
-      // 1️⃣ Buscar lead existente
-      let { data: lead, error: leadError } = await sb
-        .from("leads")
-        .select("*")
-        .eq("client_id", client_id)
-        .eq("phone", phone)
-        .maybeSingle();
-
-      if (leadError) {
-        return fail(res, "LEAD_LOOKUP_FAILED", 500, { details: leadError });
-      }
-
-      // 2️⃣ Criar se não existir
-      if (!lead) {
-        const { data: newLead, error: insertLeadError } = await sb
-          .from("leads")
-          .insert({
-            client_id,
-            phone,
-            name: "Novo Lead",
-            status: "Novo",
-            created_at: new Date().toISOString()
-          })
-          .select("*")
-          .maybeSingle();
-
-        if (insertLeadError || !newLead) {
-          return fail(res, "LEAD_CREATE_FAILED", 500, { details: insertLeadError });
-        }
-
-        lead = newLead;
-      }
-
-      // 3️⃣ Salvar mensagem
-      const { error: msgError } = await sb
-        .from("messages")
-        .insert({
-          client_id,
-          lead_id: lead.id,
-          direction: "inbound",
-          content: message,
-          instance_name: instance || null,
-          created_at: new Date().toISOString()
-        });
-
-      if (msgError) {
-        return fail(res, "MESSAGE_SAVE_FAILED", 500, { details: msgError });
-      }
-
-      return ok(res, { success: true, lead_id: lead.id });
     }
 
     return fail(res, "ROUTE_NOT_FOUND", 404);
