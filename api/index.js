@@ -7,25 +7,20 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const route = req.query?.route;
-
-  if (!route) {
-    return fail(res, "MISSING_ROUTE", 400);
-  }
+  if (!route) return fail(res, "MISSING_ROUTE", 400);
 
   const auth = await requireAuth(req, res);
   if (!auth) return;
 
   const client_id = auth.workspace_id;
   const sb = await supabaseAdmin();
-
-  if (!sb) {
-    return fail(res, "SUPABASE_NOT_AVAILABLE", 500);
-  }
+  if (!sb) return fail(res, "SUPABASE_NOT_AVAILABLE", 500);
 
   try {
-    // =========================
+
+    // =====================================================
     // CLIENTS
-    // =========================
+    // =====================================================
     if (route === "clients" && req.method === "GET") {
       const { data, error } = await sb
         .from("clients")
@@ -38,9 +33,9 @@ export default async function handler(req, res) {
       return ok(res, data ? [data] : []);
     }
 
-    // =========================
+    // =====================================================
     // INSTANCES
-    // =========================
+    // =====================================================
     if (route === "instances" && req.method === "GET") {
       const { data, error } = await sb
         .from("instances")
@@ -75,9 +70,9 @@ export default async function handler(req, res) {
       return ok(res, data, 201);
     }
 
-    // =========================
+    // =====================================================
     // LEADS
-    // =========================
+    // =====================================================
     if (route === "leads" && req.method === "GET") {
       const { data, error } = await sb
         .from("leads")
@@ -88,6 +83,72 @@ export default async function handler(req, res) {
       if (error) return fail(res, "LEADS_FETCH_FAILED", 500, { details: error });
 
       return ok(res, data || []);
+    }
+
+    // =====================================================
+    // INBOUND (N8N → SAAS)
+    // =====================================================
+    if (route === "inbound" && req.method === "POST") {
+      const body = req.body || {};
+
+      const phone = body.phone;
+      const message = body.message;
+      const instance = body.instance;
+
+      if (!phone || !message) {
+        return fail(res, "INVALID_PAYLOAD", 400);
+      }
+
+      // 1️⃣ Buscar lead existente
+      let { data: lead, error: leadError } = await sb
+        .from("leads")
+        .select("*")
+        .eq("client_id", client_id)
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (leadError) {
+        return fail(res, "LEAD_LOOKUP_FAILED", 500, { details: leadError });
+      }
+
+      // 2️⃣ Criar se não existir
+      if (!lead) {
+        const { data: newLead, error: insertLeadError } = await sb
+          .from("leads")
+          .insert({
+            client_id,
+            phone,
+            name: "Novo Lead",
+            status: "Novo",
+            created_at: new Date().toISOString()
+          })
+          .select("*")
+          .maybeSingle();
+
+        if (insertLeadError || !newLead) {
+          return fail(res, "LEAD_CREATE_FAILED", 500, { details: insertLeadError });
+        }
+
+        lead = newLead;
+      }
+
+      // 3️⃣ Salvar mensagem
+      const { error: msgError } = await sb
+        .from("messages")
+        .insert({
+          client_id,
+          lead_id: lead.id,
+          direction: "inbound",
+          content: message,
+          instance_name: instance || null,
+          created_at: new Date().toISOString()
+        });
+
+      if (msgError) {
+        return fail(res, "MESSAGE_SAVE_FAILED", 500, { details: msgError });
+      }
+
+      return ok(res, { success: true, lead_id: lead.id });
     }
 
     return fail(res, "ROUTE_NOT_FOUND", 404);
