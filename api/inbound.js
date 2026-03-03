@@ -63,6 +63,18 @@ export default async function handler(req, res) {
     }
 
     // =============================
+    // GARANTE INSTÂNCIA
+    // =============================
+    await sb
+      .from("instances")
+      .upsert({
+        client_id,
+        instance_name: instance,
+        status: "connected",
+        updated_at: new Date().toISOString()
+      }, { onConflict: "client_id,instance_name" });
+
+    // =============================
     // FIND OR CREATE LEAD
     // =============================
     let { data: lead } = await sb
