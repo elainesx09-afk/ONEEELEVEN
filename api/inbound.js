@@ -47,7 +47,12 @@ export default async function handler(req, res) {
 
     const lead_phone = body.lead_phone || body.phone;
     const message = body.message;
-    const instance = body.instance_name || body.instance || null;
+    const instance =
+      body.instance_name ||
+      body.instance ||
+      body.session ||
+      body.sender ||
+      "default";
 
     if (!lead_phone) {
       return fail(res, "MISSING_LEAD_PHONE", 400);
