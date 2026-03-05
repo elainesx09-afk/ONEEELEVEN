@@ -145,6 +145,27 @@ export default async function handler(req, res) {
       })
       .eq("id", lead.id);
 
+    // =============================
+    // DISPARAR CORE IA ENGINE
+    // =============================
+    try {
+      await fetch(`${process.env.SAAS_BASE_URL}/api/ai/brain`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-token": auth.token
+        },
+        body: JSON.stringify({
+          workspace_id: client_id,
+          lead_id: lead.id,
+          message: message,
+          instance: instance
+        })
+      });
+    } catch (err) {
+      console.error("AI ENGINE ERROR:", err);
+    }
+
     return ok(res, { success: true });
 
   } catch (err) {
