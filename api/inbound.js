@@ -114,6 +114,30 @@ export default async function handler(req, res) {
       created_at: new Date().toISOString()
     });
 
+    // =============================
+    // ENVIA PARA O MOTOR DE IA (n8n)
+    // =============================
+    try {
+      const webhook = process.env.N8N_WEBHOOK;
+      if (webhook) {
+        await fetch(webhook, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            client_id,
+            lead_id: lead.id,
+            phone: lead_phone,
+            message,
+            instance
+          })
+        });
+      }
+    } catch (err) {
+      console.error("AI ROUTER ERROR:", err);
+    }
+
     // UPDATE LAST MESSAGE
     await sb.from("leads")
       .update({ last_message_at: new Date().toISOString() })
