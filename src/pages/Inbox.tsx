@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, Send, Phone, UserPlus, Image, Mic, MoreHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -32,6 +32,12 @@ export default function Inbox() {
   const [selected, setSelected] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [summary, setSummary] = useState<{
+    context: string;
+    objection: string | null;
+    tone: string;
+    hoursWithoutResponse: number;
+  } | null>(null);
 
   const leadsQuery = useQuery({
     queryKey: ['leads'],
@@ -107,6 +113,42 @@ export default function Inbox() {
   });
 
   const messages: any[] = (messagesQuery.data ?? []) as any[];
+
+  useEffect(() => {
+    if (!messagesQuery.data || messagesQuery.data.length === 0) {
+      setSummary(null);
+      return;
+    }
+
+    const msgs = messagesQuery.data as any[];
+    const lastMsg = msgs[msgs.length - 1];
+    const inboundMsgs = msgs.filter((m) => m.direction === 'in');
+    const allInbound = inboundMsgs.map((m) => String(m.body || '')).join(' ').toLowerCase();
+
+    // Detecta tom
+    let tone = 'neutro';
+    if (/urgente|hoje|agora|rápido/.test(allInbound)) tone = 'apressado';
+    else if (/como funciona|detalhe|explica|processo/.test(allInbound)) tone = 'analítico';
+    else if (/quero|preciso|sonho|família/.test(allInbound)) tone = 'emocional';
+
+    // Detecta objeção
+    let objection: string | null = null;
+    if (/caro|valor|preço|desconto/.test(allInbound)) objection = 'Sensível a preço';
+    else if (/pensar|depois|semana|não sei/.test(allInbound)) objection = 'Indeciso';
+    else if (/concorrente|outro|comparar/.test(allInbound)) objection = 'Comparando concorrentes';
+
+    // Horas sem resposta
+    const lastMsgDate = lastMsg?.created_at ? new Date(lastMsg.created_at) : null;
+    const hoursWithoutResponse = lastMsgDate
+      ? Math.floor((Date.now() - lastMsgDate.getTime()) / 3600000)
+      : 0;
+
+    // Contexto: pega o último assunto mencionado
+    const lastFew = inboundMsgs.slice(-3).map((m) => m.body || '').join(' ');
+    const context = lastFew.length > 120 ? lastFew.slice(0, 120) + '...' : lastFew || 'Sem mensagens do lead ainda.';
+
+    setSummary({ context, objection, tone, hoursWithoutResponse });
+  }, [messagesQuery.data]);
 
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-6 animate-fade-in">
@@ -216,6 +258,35 @@ export default function Inbox() {
               </Button>
             </div>
           </div>
+
+          {/* Card de Resumo Inteligente */}
+          {summary && (
+            <div className="mx-4 mt-3 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-semibold text-primary uppercase tracking-wider">📋 Resumo do Lead</span>
+                {summary.hoursWithoutResponse > 0 && (
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    summary.hoursWithoutResponse > 24
+                      ? 'bg-destructive/10 text-destructive'
+                      : 'bg-warning/10 text-warning'
+                  }`}>
+                    {summary.hoursWithoutResponse}h sem resposta
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mb-2 leading-relaxed">"{summary.context}"</p>
+              <div className="flex flex-wrap gap-2">
+                <span className="text-xs px-2 py-1 bg-secondary rounded-full">
+                  Tom: <strong>{summary.tone}</strong>
+                </span>
+                {summary.objection && (
+                  <span className="text-xs px-2 py-1 bg-warning/10 text-warning rounded-full">
+                    ⚠️ {summary.objection}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Messages */}
           <ScrollArea className="flex-1 p-4">

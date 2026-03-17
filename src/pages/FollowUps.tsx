@@ -17,6 +17,18 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { getSequencesByWorkspace, FollowUpSequence, FollowUpStep } from '@/data/demoData';
 import { cn } from '@/lib/utils';
 
+function getBestTimeLabel(tags: string[] = []): string | null {
+  const timeTag = tags.find((t) => t.startsWith("best_time:"));
+  if (!timeTag) return null;
+  const time = timeTag.replace("best_time:", "");
+  const labels: Record<string, string> = {
+    manhã: "☀️ Melhor horário: manhã (8h-12h)",
+    tarde: "🌤 Melhor horário: tarde (12h-18h)",
+    noite: "🌙 Melhor horário: noite (18h-22h)",
+  };
+  return labels[time] ?? null;
+}
+
 export default function FollowUps() {
   const { currentWorkspace } = useWorkspace();
   const sequences = getSequencesByWorkspace(currentWorkspace.id);

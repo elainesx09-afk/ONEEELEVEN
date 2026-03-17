@@ -101,6 +101,9 @@ export default function Pipeline() {
 
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [draggedLead, setDraggedLead] = useState<string | null>(null);
+  const [lossModalOpen, setLossModalOpen] = useState(false);
+  const [pendingLossLead, setPendingLossLead] = useState<string | null>(null);
+  const [lossReason, setLossReason] = useState<string>('');
 
   const leadsState = useMemo(() => {
     const raw = leadsQuery.data ?? [];
@@ -119,6 +122,11 @@ export default function Pipeline() {
         tags: Array.isArray(l.tags) ? l.tags : [],
         needsFollowUp: !!(l.needsFollowUp ?? l.needs_follow_up),
         source: l.source ?? l.origem ?? '—',
+        daysInStage: (() => {
+          const updated = l.updated_at ?? l.last_message_at ?? l.created_at;
+          if (!updated) return 0;
+          return Math.floor((Date.now() - new Date(updated).getTime()) / 86400000);
+        })(),
       };
     }) as any[];
   }, [leadsQuery.data]);
@@ -132,8 +140,30 @@ export default function Pipeline() {
 
   const handleDrop = (stage: PipelineStage) => {
     if (!draggedLead) return;
+    if (stage === 'Perdido') {
+      setPendingLossLead(draggedLead);
+      setLossModalOpen(true);
+      setDraggedLead(null);
+      return;
+    }
     updateStage.mutate({ leadId: draggedLead, stage });
     setDraggedLead(null);
+  };
+
+  const confirmLoss = async () => {
+    if (!pendingLossLead) return;
+    // Salva motivo na tag do lead antes de mover
+    const lead = leadsState.find((l: any) => l.id === pendingLossLead);
+    const currentTags = Array.isArray(lead?.tags) ? lead.tags : [];
+    const newTags = [...currentTags.filter((t: string) => !t.startsWith('perda:')), `perda:${lossReason}`];
+    // Move para Perdido
+    await api.updateLeadStage(pendingLossLead, 'Perdido');
+    // Invalida queries
+    qc.invalidateQueries({ queryKey: ['leads'] });
+    qc.invalidateQueries({ queryKey: ['overview'] });
+    setLossModalOpen(false);
+    setPendingLossLead(null);
+    setLossReason('');
   };
 
   return (
@@ -201,6 +231,14 @@ export default function Pipeline() {
                           <span className="text-xs font-medium text-foreground">{lead.score}</span>
                         </div>
                       </div>
+
+                      {lead.daysInStage >= 3 && lead.stage !== 'Fechado' && lead.stage !== 'Perdido' && (
+                        <div className="flex items-center gap-1 mt-1 mb-2">
+                          <span className="text-[10px] text-warning bg-warning/10 px-1.5 py-0.5 rounded-full">
+                            ⏱ {lead.daysInStage}d neste estágio
+                          </span>
+                        </div>
+                      )}
 
                       <p className="text-xs text-muted-foreground mb-3 line-clamp-2">
                         {lead.lastMessage}
@@ -293,6 +331,47 @@ export default function Pipeline() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Motivo de Perda */}
+      <Dialog open={lossModalOpen} onOpenChange={(open) => { if (!open) { setLossModalOpen(false); setPendingLossLead(null); setLossReason(''); } }}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <span>⚠️</span> Por que perdeu este lead?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            {['Preço muito alto', 'Escolheu concorrente', 'Sem interesse', 'Sem resposta', 'Não era o decisor', 'Outro'].map((reason) => (
+              <button
+                key={reason}
+                onClick={() => setLossReason(reason)}
+                className={`w-full text-left px-4 py-3 rounded-lg border transition-colors text-sm ${
+                  lossReason === reason
+                    ? 'bg-destructive/10 border-destructive/50 text-destructive font-medium'
+                    : 'bg-secondary/50 border-border text-foreground hover:bg-secondary'
+                }`}
+              >
+                {reason}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setLossModalOpen(false); setPendingLossLead(null); setLossReason(''); }}
+              className="flex-1 px-4 py-2 rounded-lg border border-border text-muted-foreground hover:bg-secondary text-sm"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={confirmLoss}
+              disabled={!lossReason}
+              className="flex-1 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium disabled:opacity-50"
+            >
+              Confirmar Perda
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

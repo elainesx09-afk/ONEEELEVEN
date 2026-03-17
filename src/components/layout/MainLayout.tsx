@@ -4,6 +4,7 @@ import { WorkspaceProvider } from "@/contexts/WorkspaceContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "./AppSidebar";
 import { Header } from "./Header";
+import { OnboardingChecklist } from "@/components/OnboardingChecklist";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -22,6 +23,7 @@ export function MainLayout() {
                 <Outlet />
               </main>
             </div>
+            <OnboardingChecklist />
           </div>
         </TooltipProvider>
       </WorkspaceProvider>
