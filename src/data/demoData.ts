@@ -471,7 +471,7 @@ export const demoFollowUpSequences: FollowUpSequence[] = [
     active: true,
     leadsEnrolled: 45,
     conversions: 12,
-    workspaceId: 'ws-1',
+    workspaceId: 'workspace',
     steps: [
       { id: 's1', day: 'D+0', message: 'Oi [NOME]! Vi que você se interessou pelo nosso [PRODUTO]. Ainda posso te ajudar?', objective: 'Reengajar', trigger: 'Sem resposta em 24h' },
       { id: 's2', day: 'D+1', message: 'Ei [NOME], temos uma condição especial hoje! Quer saber mais?', objective: 'Criar urgência', trigger: 'Sem resposta' },
@@ -487,7 +487,7 @@ export const demoFollowUpSequences: FollowUpSequence[] = [
     active: true,
     leadsEnrolled: 28,
     conversions: 8,
-    workspaceId: 'ws-2',
+    workspaceId: 'workspace',
     steps: [
       { id: 's1', day: 'D+0', message: 'Olá [NOME]! Ainda pensando na sua consulta? Posso esclarecer algo?', objective: 'Reengajar', trigger: 'Sem resposta em 48h' },
       { id: 's2', day: 'D+2', message: '[NOME], temos horários disponíveis essa semana! Qual seria melhor pra você?', objective: 'Facilitar agendamento', trigger: 'Sem resposta' },
@@ -502,7 +502,7 @@ export const demoFollowUpSequences: FollowUpSequence[] = [
     active: false,
     leadsEnrolled: 15,
     conversions: 5,
-    workspaceId: 'ws-1',
+    workspaceId: 'workspace',
     steps: [
       { id: 's1', day: 'D+0', message: 'Prezado(a) [NOME], gostaria de retomar nossa conversa sobre [PRODUTO].', objective: 'Formalizar contato', trigger: 'Sem resposta em 72h' },
       { id: 's2', day: 'D+3', message: 'Preparei uma proposta personalizada. Quando podemos agendar uma call?', objective: 'Proposta', trigger: 'Sem resposta' },

@@ -47,13 +47,29 @@ export default function FollowUps() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Sequences List */}
         <div className="lg:col-span-2 space-y-4">
-          {sequences.map((seq) => (
-            <SequenceCard
-              key={seq.id}
-              sequence={seq}
-              onEdit={() => setSelectedSequence(seq)}
-            />
-          ))}
+          {sequences.length === 0 ? (
+            <Card className="bg-card border-border">
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mb-4">
+                  <Plus className="w-6 h-6 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground mb-2">Nenhuma sequência criada</h3>
+                <p className="text-sm text-muted-foreground mb-4">Crie sua primeira sequência de follow-up automatizado</p>
+                <Button className="btn-premium">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nova Sequência
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            sequences.map((seq) => (
+              <SequenceCard
+                key={seq.id}
+                sequence={seq}
+                onEdit={() => setSelectedSequence(seq)}
+              />
+            ))
+          )}
         </div>
 
         {/* Anti-Loucura Rules */}
