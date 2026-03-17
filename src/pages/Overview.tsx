@@ -218,6 +218,81 @@ export default function Overview() {
         </Card>
       </div>
 
+      {/* ── MODO DONO ─────────────────────────────────────────── */}
+      <Card className="bg-gradient-to-r from-primary/10 via-card to-card border border-primary/30">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Sparkles className="w-5 h-5 text-primary" />
+            Resumo do Dia — Modo Dono
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-3 bg-background/50 rounded-lg">
+              <p className="text-2xl font-bold text-primary">{safeNum(overview?.total_leads)}</p>
+              <p className="text-xs text-muted-foreground mt-1">Leads hoje</p>
+            </div>
+            <div className="text-center p-3 bg-background/50 rounded-lg">
+              <p className="text-2xl font-bold text-warning">{safeNum(overview?.hot_leads)}</p>
+              <p className="text-xs text-muted-foreground mt-1">Quase fechando</p>
+            </div>
+            <div className="text-center p-3 bg-background/50 rounded-lg">
+              <p className="text-2xl font-bold text-success">{safeNum(overview?.total_conversions)}</p>
+              <p className="text-xs text-muted-foreground mt-1">Fechados</p>
+            </div>
+            <div className="text-center p-3 bg-background/50 rounded-lg">
+              <p className="text-2xl font-bold text-foreground">
+                R$ {(safeNum(overview?.total_conversions) * 497).toLocaleString()}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">Previsão receita</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── SAÚDE COMERCIAL ───────────────────────────────────── */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-primary" />
+            Saúde Comercial
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            const total = safeNum(overview?.total_leads) || 1;
+            const hot = safeNum(overview?.hot_leads);
+            const conv = safeNum(overview?.conversion_rate);
+            const msgs = safeNum(overview?.total_messages);
+            const score = Math.min(100, Math.round((hot / total) * 40 + conv * 0.4 + Math.min(msgs / 100, 1) * 20));
+            const color = score >= 70 ? "text-success" : score >= 40 ? "text-warning" : "text-destructive";
+            const label = score >= 70 ? "Excelente" : score >= 40 ? "Atenção necessária" : "Crítico";
+            return (
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <p className={`text-5xl font-black ${color}`}>{score}</p>
+                  <p className="text-xs text-muted-foreground">/100</p>
+                </div>
+                <div className="flex-1">
+                  <p className={`font-semibold ${color}`}>{label}</p>
+                  <div className="w-full bg-secondary rounded-full h-3 mt-2">
+                    <div
+                      className={`h-3 rounded-full transition-all duration-700 ${
+                        score >= 70 ? "bg-success" : score >= 40 ? "bg-warning" : "bg-destructive"
+                      }`}
+                      style={{ width: `${score}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Baseado em leads ativos, taxa de conversão e volume de mensagens
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
+
       {/* Charts + Magic Formula */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 bg-card/50 border-border">

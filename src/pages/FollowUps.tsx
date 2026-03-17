@@ -35,12 +35,12 @@ export default function FollowUps() {
         <div>
           <h1 className="text-3xl font-bold font-display tracking-tight text-foreground">Follow-ups</h1>
           <p className="text-muted-foreground mt-1">
-            Automated follow-up sequences engine
+            Motor de sequências automatizadas
           </p>
         </div>
         <Button className="btn-premium">
           <Plus className="w-4 h-4 mr-2" />
-          Create Sequence
+          Nova Sequência
         </Button>
       </div>
 
@@ -99,7 +99,7 @@ export default function FollowUps() {
             <div className="pt-2 border-t border-border">
               <div className="flex items-center gap-2 text-sm text-success">
                 <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                All rules active
+                Todas as regras ativas
               </div>
             </div>
           </CardContent>
@@ -110,39 +110,39 @@ export default function FollowUps() {
       <Dialog open={!!selectedSequence} onOpenChange={() => setSelectedSequence(null)}>
         <DialogContent className="bg-card border-border max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-foreground">Edit Sequence: {selectedSequence?.name}</DialogTitle>
+            <DialogTitle className="text-foreground">Editar Sequência: {selectedSequence?.name}</DialogTitle>
           </DialogHeader>
 
           {selectedSequence && (
             <div className="space-y-6">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Sequence Name</label>
+                <label className="text-sm font-medium text-foreground">Nome da Sequência</label>
                 <Input defaultValue={selectedSequence.name} className="bg-secondary border-border" />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Description</label>
+                <label className="text-sm font-medium text-foreground">Descrição</label>
                 <Textarea defaultValue={selectedSequence.description} className="bg-secondary border-border" />
               </div>
 
               <Separator className="bg-border" />
 
               <div className="space-y-4">
-                <h4 className="font-medium text-foreground">Steps</h4>
+                <h4 className="font-medium text-foreground">Etapas</h4>
                 {selectedSequence.steps.map((step, index) => (
                   <StepEditor key={step.id} step={step} index={index} />
                 ))}
                 <Button variant="outline" className="w-full border-dashed border-border text-muted-foreground">
                   <Plus className="w-4 h-4 mr-2" />
-                  Add Step
+                  Adicionar Etapa
                 </Button>
               </div>
 
               <div className="flex gap-2 justify-end">
                 <Button variant="ghost" onClick={() => setSelectedSequence(null)} className="text-muted-foreground">
-                  Cancel
+                  Cancelar
                 </Button>
-                <Button className="btn-premium">Save Changes</Button>
+                <Button className="btn-premium">Salvar alterações</Button>
               </div>
             </div>
           )}
@@ -161,7 +161,7 @@ function SequenceCard({ sequence, onEdit }: { sequence: FollowUpSequence; onEdit
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-lg text-foreground">{sequence.name}</h3>
               <Badge variant={sequence.active ? 'default' : 'secondary'} className={sequence.active ? 'bg-success/20 text-success border-success/30' : ''}>
-                {sequence.active ? 'Active' : 'Inactive'}
+                {sequence.active ? 'Ativo' : 'Inativo'}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">{sequence.description}</p>
@@ -195,15 +195,15 @@ function SequenceCard({ sequence, onEdit }: { sequence: FollowUpSequence; onEdit
         <div className="flex gap-6 pt-4 border-t border-border">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm text-foreground">{sequence.leadsEnrolled} enrolled</span>
+            <span className="text-sm text-foreground">{sequence.leadsEnrolled} inscritos</span>
           </div>
           <div className="flex items-center gap-2">
             <Trophy className="w-4 h-4 text-warning" />
-            <span className="text-sm text-foreground">{sequence.conversions} conversions</span>
+            <span className="text-sm text-foreground">{sequence.conversions} conversões</span>
           </div>
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm text-foreground">{sequence.steps.length} steps</span>
+            <span className="text-sm text-foreground">{sequence.steps.length} etapas</span>
           </div>
         </div>
       </CardContent>
@@ -220,7 +220,7 @@ function StepEditor({ step, index }: { step: FollowUpStep; index: number }) {
             <span className="text-sm font-bold text-primary">{step.day}</span>
           </div>
           <div>
-            <p className="font-medium text-foreground">Step {index + 1}</p>
+            <p className="font-medium text-foreground">Etapa {index + 1}</p>
             <p className="text-xs text-muted-foreground">{step.trigger}</p>
           </div>
         </div>
@@ -231,11 +231,11 @@ function StepEditor({ step, index }: { step: FollowUpStep; index: number }) {
       <Textarea defaultValue={step.message} className="bg-secondary border-border text-sm" rows={2} />
       <div className="flex gap-4">
         <div className="flex-1">
-          <label className="text-xs text-muted-foreground">Objective</label>
+          <label className="text-xs text-muted-foreground">Objetivo</label>
           <Input defaultValue={step.objective} className="bg-secondary border-border text-sm mt-1" />
         </div>
         <div className="flex-1">
-          <label className="text-xs text-muted-foreground">Trigger</label>
+          <label className="text-xs text-muted-foreground">Gatilho</label>
           <Input defaultValue={step.trigger} className="bg-secondary border-border text-sm mt-1" />
         </div>
       </div>

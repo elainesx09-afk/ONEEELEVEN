@@ -363,6 +363,73 @@ async function handleResponse(req, res) {
   }
 }
 
+// ─── /api/ai?action=memory ────────────────────────────────────────────────
+async function handleMemory(req, res) {
+  if (req.method !== "POST") return res.status(405).json({ ok: false });
+
+  const { lead_id } = await getBody(req);
+  if (!lead_id) return fail(res, "MISSING_LEAD_ID", 400);
+
+  const sb = await supabaseAdmin();
+
+  // Busca histórico de mensagens
+  const { data: messages } = await sb
+    .from("messages")
+    .select("body, direction, created_at")
+    .eq("lead_id", lead_id)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  const msgs = messages ?? [];
+  const inbound = msgs.filter(m => m.direction === "in").map(m => m.body || "").join(" ").toLowerCase();
+
+  // Detecta perfil psicológico
+  const profile = {
+    price_sensitive: /caro|valor|preço|desconto|custo/.test(inbound),
+    urgent: /urgente|hoje|agora|rápido|logo/.test(inbound),
+    analytical: /como funciona|detalhe|explica|técnico|processo/.test(inbound),
+    emotional: /quero|preciso|sonho|família|ajuda/.test(inbound),
+    best_time: (() => {
+      const hours = msgs
+        .filter(m => m.direction === "in" && m.created_at)
+        .map(m => new Date(m.created_at).getHours());
+      if (hours.length === 0) return "indefinido";
+      const avg = hours.reduce((a, b) => a + b, 0) / hours.length;
+      if (avg < 12) return "manhã";
+      if (avg < 18) return "tarde";
+      return "noite";
+    })(),
+    objections: [],
+    response_speed: "normal",
+  };
+
+  // Detecta objeções frequentes
+  if (/caro|muito/.test(inbound)) profile.objections.push("preço");
+  if (/pensar|depois|semana/.test(inbound)) profile.objections.push("indecisão");
+  if (/concorrente|outro|comparar/.test(inbound)) profile.objections.push("comparação");
+
+  // Velocidade de resposta
+  const responseTimes = [];
+  for (let i = 1; i < msgs.length; i++) {
+    if (msgs[i].direction === "in" && msgs[i-1].direction === "out") {
+      const diff = (new Date(msgs[i].created_at).getTime() - new Date(msgs[i-1].created_at).getTime()) / 60000;
+      responseTimes.push(diff);
+    }
+  }
+  if (responseTimes.length > 0) {
+    const avgTime = responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
+    profile.response_speed = avgTime < 10 ? "rápido" : avgTime < 60 ? "normal" : "lento";
+  }
+
+  // Salva no banco
+  await sb.from("leads").update({
+    lead_profile: profile,
+    updated_at: new Date().toISOString(),
+  }).eq("id", lead_id);
+
+  return ok(res, { lead_id, profile });
+}
+
 // ============================================================================
 // ROUTER PRINCIPAL
 // ============================================================================
@@ -383,11 +450,13 @@ export default async function handler(req, res) {
       return handlePriority(req, res);
     case "response":
       return handleResponse(req, res);
+    case "memory":
+      return handleMemory(req, res);
     default:
       return res.status(404).json({
         ok: false,
         error: "AI_ACTION_NOT_FOUND",
-        available: ["brain", "priority", "response"],
+        available: ["brain", "priority", "response", "memory"],
       });
   }
 }

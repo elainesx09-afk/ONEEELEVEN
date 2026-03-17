@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Search, MoreHorizontal, Phone, Clock } from 'lucide-react';
+import { Search, MoreHorizontal, Phone, Clock, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -325,6 +326,37 @@ export default function Leads() {
           )}
         </div>
       </div>
+
+      {/* ── RADAR DE PERDA ───────────────────────────────────── */}
+      {(() => {
+        const atRisk = (allLeads as any[]).filter((l) => {
+          if (!l.lastMessageAt) return true;
+          const hours = (Date.now() - new Date(l.lastMessageAt).getTime()) / 3600000;
+          return hours > 24 && !["ganhou", "perdido"].includes(l.stage || "");
+        });
+        if (atRisk.length === 0) return null;
+        return (
+          <Card className="bg-destructive/5 border border-destructive/30">
+            <CardContent className="py-4">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold text-destructive text-sm">
+                    ⚠️ {atRisk.length} lead{atRisk.length > 1 ? "s" : ""} em risco de perda
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Sem resposta há mais de 24h: {atRisk.slice(0, 3).map((l: any) => l.name || "Lead").join(", ")}
+                    {atRisk.length > 3 ? ` e mais ${atRisk.length - 3}` : ""}
+                  </p>
+                </div>
+                <Button size="sm" variant="destructive" className="flex-shrink-0">
+                  Ver agora
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <div className="flex flex-wrap items-center gap-4">
         <div className="relative flex-1 min-w-[200px] max-w-md">

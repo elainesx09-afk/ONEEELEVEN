@@ -45,8 +45,8 @@ ${config.criticalRules.map(r => `⚠️ ${r}`).join('\n')}`;
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-display tracking-tight text-foreground">Bot Configuration</h1>
-          <p className="text-muted-foreground mt-1">Configure your AI sales agent</p>
+          <h1 className="text-3xl font-bold font-display tracking-tight text-foreground">Configuração do Bot</h1>
+          <p className="text-muted-foreground mt-1">Configure seu agente de vendas com IA</p>
         </div>
         <Button className="btn-gold" onClick={() => setShowPrompt(true)}>
           <Sparkles className="w-4 h-4 mr-2" />

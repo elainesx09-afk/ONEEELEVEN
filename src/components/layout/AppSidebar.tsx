@@ -21,15 +21,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Overview', path: '/overview' },
-  { icon: Users, label: 'Clients', path: '/clients', agencyOnly: true },
-  { icon: Smartphone, label: 'Instances', path: '/instances' },
-  { icon: MessageSquare, label: 'Inbox', path: '/inbox' },
+  { icon: Users, label: 'Clientes', path: '/clients', agencyOnly: true },
+  { icon: Smartphone, label: 'Instâncias', path: '/instances' },
+  { icon: MessageSquare, label: 'Caixa de Entrada', path: '/inbox' },
   { icon: UserCircle, label: 'Leads', path: '/leads' },
   { icon: Kanban, label: 'Pipeline', path: '/pipeline' },
   { icon: Clock, label: 'Follow-ups', path: '/follow-ups' },
-  { icon: Trophy, label: 'Converted', path: '/converted' },
+  { icon: Trophy, label: 'Convertidos', path: '/converted' },
   { icon: Bot, label: 'Bot', path: '/bot' },
-  { icon: Settings, label: 'Settings', path: '/settings' },
+  { icon: Settings, label: 'Configurações', path: '/settings' },
 ];
 
 export function AppSidebar() {
@@ -112,7 +112,7 @@ export function AppSidebar() {
           ) : (
             <>
               <ChevronLeft className="w-4 h-4 mr-2" />
-              <span className="text-xs">Collapse</span>
+              <span className="text-xs">Recolher</span>
             </>
           )}
         </Button>
