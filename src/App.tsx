@@ -6,6 +6,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import Login from "@/pages/Login";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
+import TikTokCallback from "@/pages/TikTokCallback";
 import Overview from "@/pages/Overview";
 import Leads from "@/pages/Leads";
 import Pipeline from "@/pages/Pipeline";
@@ -26,6 +27,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/tiktok-callback" element={<TikTokCallback />} />
 
           <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
             <Route path="/overview" element={<Overview />} />
