@@ -1,4 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+
+function RootRedirect() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  if (params.get("code")) return <TikTokCallback />;
+  return <Navigate to="/overview" replace />;
+}
 import { AuthProvider } from "@/lib/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -42,7 +49,7 @@ function App() {
             <Route path="/settings" element={<Settings />} />
           </Route>
 
-          <Route path="/" element={<Navigate to="/overview" replace />} />
+          <Route path="/" element={<RootRedirect />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AuthProvider>
