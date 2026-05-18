@@ -110,8 +110,9 @@ export default async function handler(req, res) {
     // ========================================================================
     // 5. CRIAR URL DE ACESSO
     // ========================================================================
-    const base_url = process.env.VITE_API_BASE_URL || "https://oneeeleven111.vercel.app";
-    const access_url = `${base_url}?workspace_id=${workspace_id}&token=${api_token}`;
+    const base_url = process.env.VITE_API_BASE_URL || "https://um-onze-saas.vercel.app";
+    // Token NOT embedded in URL — only returned in JSON body (once, at creation).
+    const access_url = `${base_url}?workspace_id=${workspace_id}`;
 
     // ========================================================================
     // 6. RETORNAR CREDENCIAIS

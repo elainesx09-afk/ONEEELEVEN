@@ -38,7 +38,7 @@ O `Overview.tsx` **já está corretamente implementado**. Ele:
 ### ⚠️ Ação necessária no Vercel/Ambiente
 ```env
 VITE_DEMO_MODE=false          # desliga dados fictícios
-VITE_API_BASE_URL=https://seu-saas.vercel.app
+VITE_API_BASE_URL=https://um-onze-saas.vercel.app
 VITE_API_TOKEN=sk-live-SEU_TOKEN
 VITE_WORKSPACE_ID=ws_SEU_ID
 ```
@@ -253,7 +253,7 @@ created_at    TIMESTAMPTZ
 [ ] SUPABASE_URL=...
 [ ] SUPABASE_SERVICE_ROLE_KEY=...
 [ ] VITE_DEMO_MODE=false           ← IMPORTANTE: desliga dados fictícios
-[ ] VITE_API_BASE_URL=https://seu-saas.vercel.app
+[ ] VITE_API_BASE_URL=https://um-onze-saas.vercel.app
 [ ] VITE_API_TOKEN=sk-live-...
 [ ] VITE_WORKSPACE_ID=ws_...
 ```

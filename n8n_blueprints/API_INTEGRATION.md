@@ -11,7 +11,7 @@
 
 | Variável | Exemplo | Uso |
 |---|---|---|
-| `SAAS_BASE_URL` | `https://meu-saas.vercel.app` | Base de todas as APIs |
+| `SAAS_BASE_URL` | `https://um-onze-saas.vercel.app` | Base de todas as APIs |
 | `EVOLUTION_BASE_URL` | `https://evolution.meudominio.com` | Evolution API |
 | `N8N_WEBHOOK_BASE_URL` | `https://meu-n8n.railway.app` | Self-reference para webhooks |
 | `WORKSPACE_ID` | `ws_abc123` | Fallback de tenant |
