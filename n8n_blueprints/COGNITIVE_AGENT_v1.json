@@ -1,0 +1,113 @@
+{
+  "name": "COGNITIVE_AGENT v1 — Motor cognitivo unificado",
+  "nodes": [
+    {
+      "id": "ca01",
+      "name": "Webhook: Mensagem Recebida",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cognitive-agent",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "ca02",
+      "name": "Determinar Estágio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "jsCode": "// === POLYFILL: fetch para n8n 2.x ===\nconst fetch = async (url, opts = {}) => {\n  const method = (opts.method || 'GET').toUpperCase();\n  const headers = opts.headers || {};\n  let body = opts.body;\n  let isJson = false;\n  if (body && typeof body === 'string') {\n    try { body = JSON.parse(body); isJson = true; } catch (e) {}\n  } else if (body && typeof body === 'object') {\n    isJson = true;\n  }\n  const response = await this.helpers.httpRequest({\n    method, url, headers, body,\n    json: isJson,\n    returnFullResponse: true,\n    ignoreHttpStatusErrors: true,\n  });\n  const bodyOut = response.body;\n  return {\n    ok: response.statusCode >= 200 && response.statusCode < 300,\n    status: response.statusCode,\n    json: async () => typeof bodyOut === 'string' ? JSON.parse(bodyOut) : bodyOut,\n    text: async () => typeof bodyOut === 'string' ? bodyOut : JSON.stringify(bodyOut),\n  };\n};\n// === END POLYFILL ===\n\nconst payload = $input.first().json.body || $input.first().json;\nconst lead_id = payload.lead_id;\nconst phone = payload.phone || payload.from;\nconst user_message = payload.message || payload.text || payload.body;\n\nif (!lead_id && !phone) {\n  throw new Error('lead_id ou phone obrigatório');\n}\n\n// Busca/cria lead\nconst h = { apikey: $vars.SUPABASE_ANON_KEY, Authorization: `Bearer ${$vars.SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };\nlet lead;\nif (lead_id) {\n  const r = await fetch(`${$vars.SUPABASE_URL}/rest/v1/leads?id=eq.${lead_id}&select=*&limit=1`, { headers: h });\n  const arr = r.ok ? await r.json() : [];\n  lead = arr[0];\n} else {\n  const r = await fetch(`${$vars.SUPABASE_URL}/rest/v1/leads?phone=eq.${encodeURIComponent(phone)}&select=*&limit=1`, { headers: h });\n  const arr = r.ok ? await r.json() : [];\n  lead = arr[0];\n  if (!lead) {\n    // cria novo\n    const cr = await fetch(`${$vars.SUPABASE_URL}/rest/v1/leads`, {\n      method: 'POST',\n      headers: { ...h, 'Prefer': 'return=representation' },\n      body: JSON.stringify({ phone, stage: 'NOVO', status: 'active', created_at: new Date().toISOString() })\n    });\n    const carr = cr.ok ? await cr.json() : [];\n    lead = carr[0];\n  }\n}\n\nif (!lead) throw new Error('Não foi possível obter o lead');\n\n// Mapeia stage -> agent_stage\nconst stageMap = {\n  'NOVO': 'IA_NOVO',\n  'EM_ATENDIMENTO': 'IA_ATENDIMENTO',\n  'QUALIFICADO': 'IA_QUALIFICACAO',\n  'AGENDADO': 'IA_AGENDADO',\n  'FECHADO': 'IA_POSVENDA',\n  'POS_VENDA': 'IA_POSVENDA',\n  'FOLLOW_UP': 'IA_FOLLOWUP'\n};\nconst agent_stage = stageMap[lead.stage] || 'IA_ATENDIMENTO';\n\nreturn [{ json: { lead, user_message, agent_stage, client_id: lead.client_id || null } }];"
+      }
+    },
+    {
+      "id": "ca03",
+      "name": "Carregar Config Empresa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/company_config?select=*&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" }
+          ]
+        },
+        "options": { "response": { "response": { "responseFormat": "json" } } }
+      }
+    },
+    {
+      "id": "ca04",
+      "name": "Chamar Motor Cognitivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SAAS_BASE_URL }}/api/cognitive/react",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-api-token", "value": "={{ $vars.SAAS_API_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lead_id\": \"{{ $('Determinar Estágio').first().json.lead.id }}\",\n  \"client_id\": \"{{ $('Determinar Estágio').first().json.client_id }}\",\n  \"user_message\": \"{{ $('Determinar Estágio').first().json.user_message }}\",\n  \"agent_stage\": \"{{ $('Determinar Estágio').first().json.agent_stage }}\",\n  \"company_config\": {{ JSON.stringify($json[0] || {}) }}\n}",
+        "options": { "timeout": 30000 }
+      }
+    },
+    {
+      "id": "ca05",
+      "name": "Armazenar Memória",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1160, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SAAS_BASE_URL }}/api/memory/store",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-api-token", "value": "={{ $vars.SAAS_API_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lead_id\": \"{{ $('Determinar Estágio').first().json.lead.id }}\",\n  \"client_id\": \"{{ $('Determinar Estágio').first().json.client_id }}\",\n  \"messages\": [{ \"role\": \"user\", \"content\": \"{{ $('Determinar Estágio').first().json.user_message }}\", \"created_at\": \"{{ $now }}\" }]\n}",
+        "options": { "timeout": 20000 }
+      }
+    },
+    {
+      "id": "ca06",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1400, 300],
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, lead_id: $('Determinar Estágio').first().json.lead.id, action: $('Chamar Motor Cognitivo').first().json.data.final_action }) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Mensagem Recebida": { "main": [[{ "node": "Determinar Estágio", "type": "main", "index": 0 }]] },
+    "Determinar Estágio": { "main": [[{ "node": "Carregar Config Empresa", "type": "main", "index": 0 }]] },
+    "Carregar Config Empresa": { "main": [[{ "node": "Chamar Motor Cognitivo", "type": "main", "index": 0 }]] },
+    "Chamar Motor Cognitivo": { "main": [[{ "node": "Armazenar Memória", "type": "main", "index": 0 }]] },
+    "Armazenar Memória": { "main": [[{ "node": "Responder Webhook", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null
+}
