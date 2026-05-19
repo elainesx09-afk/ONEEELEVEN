@@ -2,6 +2,22 @@
 
 Sistema cognitivo (Fases 1-5) implementado e commitado em `ce4317e`. Agora você precisa fazer os passos manuais abaixo para o SaaS rodar 100%.
 
+## Status do n8n (auditoria sessão 2026-05-19)
+
+**3 bugs encontrados e corrigidos in-place (sem necessidade de redeploy):**
+
+1. ✅ `fetch is not defined` (14 Code nodes em 6 workflows) — n8n 2.x task runner não expõe `fetch` global. Adicionado polyfill v2 usando `helpers.httpRequest` (RPC method exposto pelo sandbox).
+2. ✅ `Code doesn't return items properly` (ENRICHMENT Parse Leads) — multi-output return inválido no `runOnceForAllItems`. Refatorado para single-output.
+3. ✅ `Cannot read properties of undefined (reading 'caseSensitive')` (9 IF/Switch nodes em 3 workflows: AB_TEST_ENGINE, INBOUND_PIPELINE, IA_FOLLOWUP) — Conditions sem `options.caseSensitive`. Adicionado.
+4. ✅ `Error: Credentials not found` (23 HTTP nodes em 4 workflows: CHURN_PREVENTION, SENTIMENT_ALERT, INTELLIGENT_HANDOFF, INBOUND_PIPELINE) — nodes configurados com `authentication: genericCredentialType` mas credencial deletada. Como o `x-api-key` já é enviado manualmente em headers, mudei `authentication: none`. 
+
+**Workflows ainda a verificar nas próximas execuções:**
+- `23_CEREBRO_AUTOVALIDACAO`, `14_CHURN_PREVENTION_v1.1` — falharam mas pré-patch. Próximos crons dirão se ficaram OK.
+
+**Confirmados funcionando após patches:**
+- ✅ `21_HEALTH_MONITOR_v1` (cron de 5 min, 96% sucesso histórico)
+- ✅ `19_ENRICHMENT_ENGINE_v1.1` (primeira execução pós-patch v2: success em 17:48 UTC)
+
 ## 🔴 PASSO 1 — Aplicar migration no Supabase (5 minutos)
 
 1. Acesse https://supabase.com/dashboard/project/cpuaflrmrxfovhqvljrw/sql/new
