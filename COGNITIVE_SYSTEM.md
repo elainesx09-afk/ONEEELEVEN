@@ -98,17 +98,38 @@ Esperado: `summary.overall = "healthy"` (ou "degraded" se Claude estiver sem cr�
 4. **Após resposta + reação do lead** → `/api/cognitive/reflect` avalia e extrai padrão
 5. **Próxima conversa similar** → motor ReAct usa `find_similar_leads` + padrões salvos para responder melhor
 
-## Custos estimados (50 clientes ativos)
+## Otimização de custo — roteamento adaptativo
+
+O sistema classifica cada mensagem ANTES de processar (`api/_lib/turnClassifier.js`) e ajusta o gasto:
+
+| Complexidade | Exemplos | Modelo | Passos ReAct | Custo relativo |
+|---|---|---|---|---|
+| **simple** | "oi", "ok", "obrigado" | Haiku 4.5 | 2 | ~1x (baratíssimo) |
+| **moderate** | perguntas, pedidos de info | Sonnet 4.6 | 3 | ~6x |
+| **complex** | objeção, preço, qualificação | Sonnet 4.6 | 5 | ~12x |
+
+Além disso:
+- **Extração de fatos** (`memory/store`) e **reflexão** (`cognitive/reflect`) usam Haiku — são tarefas de classificação.
+- **Prompt caching** ativo em todas as chamadas (system prompt cacheado).
+- **Histórico reduzido** para turnos simples (4 msgs vs 10).
+- A resposta de `/api/cognitive/react` inclui `usage` (tokens) e `turn` (modelo escolhido) — transparência total de custo.
+
+## Custo marginal por cliente (real estate, ~500 leads/mês)
+
+| Cenário | Custo Claude/cliente/mês |
+|---|---|
+| Sem otimização (tudo Sonnet, 5 passos) | R$150-600 |
+| **Com roteamento adaptativo** | **R$40-180** |
+
+Economia de ~65-70% sem perda de qualidade nos turnos que importam (objeção/qualificação continuam no Sonnet com loop completo).
+
+## Custos de infraestrutura (compartilhado entre todos os clientes)
 
 | Componente | Plano | Custo |
 |---|---|---|
-| Claude Sonnet 4.6 | API (uso) | ~R$30-80/mês |
 | Voyage AI | Free tier 200M tok | R$0 |
-| Supabase | Free tier (até 500MB) | R$0 |
+| Supabase | Free tier (até 500MB) | R$0 → US$25/mês no Pro |
 | Vercel | Free tier serverless | R$0 |
-| **TOTAL** | | **R$30-80/mês** |
-
-Quando Supabase passar de 500MB, plano Pro = US$25/mês.
 
 ## Próximos passos sugeridos
 

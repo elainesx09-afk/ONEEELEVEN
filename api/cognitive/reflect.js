@@ -106,6 +106,7 @@ ${reaction.time_to_reply_minutes != null ? `- Tempo até responder: ${reaction.t
       const claudeResp = await claudeCall({
         system: REFLECTION_PROMPT,
         messages: [{ role: "user", content: userPrompt }],
+        model: "claude-haiku-4-5-20251001", // reflexão é classificação — Haiku basta
         maxTokens: 1024,
         temperature: 0.4,
         cacheSystem: true,

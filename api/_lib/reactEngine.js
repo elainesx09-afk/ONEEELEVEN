@@ -44,6 +44,16 @@ export async function runReactLoop({
   let finalAction = null;
   let loop = 0;
 
+  // Agrega consumo de tokens em todas as chamadas — transparência de custo
+  const usage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    claude_calls: 0,
+    model,
+  };
+
   while (loop < maxLoops && !finalAction) {
     loop++;
 
@@ -67,7 +77,17 @@ export async function runReactLoop({
         toolCalls,
         finalAction: { type: "error", error: e.message },
         loops: loop,
+        usage,
       };
+    }
+
+    // Acumula uso de tokens desta chamada
+    if (response.usage) {
+      usage.claude_calls++;
+      usage.input_tokens += response.usage.input_tokens || 0;
+      usage.output_tokens += response.usage.output_tokens || 0;
+      usage.cache_read_tokens += response.usage.cache_read_input_tokens || 0;
+      usage.cache_write_tokens += response.usage.cache_creation_input_tokens || 0;
     }
 
     const tools = claudeToolUses(response);
@@ -126,5 +146,5 @@ export async function runReactLoop({
     finalAction = { type: "max_loops_exceeded", loops: maxLoops };
   }
 
-  return { messages, toolCalls, finalAction, loops: loop };
+  return { messages, toolCalls, finalAction, loops: loop, usage };
 }

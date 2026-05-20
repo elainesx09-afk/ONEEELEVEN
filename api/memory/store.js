@@ -104,6 +104,7 @@ export default async function handler(req, res) {
         const claudeResp = await claudeCall({
           system: FACT_EXTRACTION_PROMPT,
           messages: [{ role: "user", content: conversationText }],
+          model: "claude-haiku-4-5-20251001", // extração estruturada — Haiku basta
           maxTokens: 1024,
           temperature: 0.3,
           cacheSystem: true,
