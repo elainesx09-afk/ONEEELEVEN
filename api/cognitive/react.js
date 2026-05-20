@@ -28,6 +28,8 @@ import { setCors, ok, fail } from "../_lib/response.js";
 import { runReactLoop } from "../_lib/reactEngine.js";
 import { supabaseAdmin } from "../_lib/supabaseAdmin.js";
 import { classifyTurn } from "../_lib/turnClassifier.js";
+import { checkLimit } from "../_lib/planLimits.js";
+import { executeTool } from "../_lib/cognitiveTools.js";
 
 const STAGE_PERSONAS = {
   IA_NOVO: `Você é o agente IA_NOVO da {{COMPANY_NAME}}. Sua missão: capturar interesse inicial, qualificar contato, criar conexão. Tom: {{TONE}}. NUNCA pressione, foque em entender a necessidade. UMA pergunta por vez.`,
@@ -147,6 +149,12 @@ export default async function handler(req, res) {
     const effectiveModel = model || turn.model;
     const effectiveMaxLoops = max_loops != null ? max_loops : turn.maxLoops;
 
+    // Checagem de limite de plano (soft — informa, não derruba conversa viva)
+    let planLimit = null;
+    if (client_id) {
+      planLimit = await checkLimit(client_id, "leads");
+    }
+
     const trace = [];
     const result = await runReactLoop({
       systemPrompt,
@@ -158,10 +166,56 @@ export default async function handler(req, res) {
       onStep: (step) => trace.push(step),
     });
 
+    // ========================================================================
+    // DEGRADAÇÃO GRACIOSA — se a IA falhou, NUNCA deixa o lead no silêncio.
+    // Envia mensagem de espera + escala pro humano + registra episódio.
+    // ========================================================================
+    const FAIL_TYPES = ["error", "max_loops_exceeded", "no_action"];
+    let degraded = null;
+
+    if (FAIL_TYPES.includes(result.finalAction?.type) && !dry_run) {
+      const reason =
+        result.finalAction.type === "error"
+          ? `Falha técnica da IA: ${result.finalAction.error || "desconhecida"}`
+          : result.finalAction.type === "max_loops_exceeded"
+          ? "IA não concluiu o raciocínio no limite de passos"
+          : "IA não produziu resposta";
+
+      try {
+        // 1. Mensagem de espera ao lead — quebra o silêncio
+        await executeTool(
+          "send_message",
+          {
+            lead_id,
+            text: "Deixa eu confirmar uma informação aqui rapidinho e já te respondo, tá? 😊",
+          },
+          { lead_id, client_id }
+        );
+
+        // 2. Escala pro humano
+        await executeTool(
+          "escalate_to_human",
+          {
+            lead_id,
+            reason: `[DEGRADAÇÃO AUTOMÁTICA] ${reason}`,
+            urgency: "high",
+          },
+          { lead_id, client_id }
+        );
+
+        degraded = { triggered: true, reason, fallback: "holding_message + escalation" };
+      } catch (degErr) {
+        console.error("Graceful degradation failed:", degErr.message);
+        degraded = { triggered: true, reason, fallback: "FAILED", error: degErr.message };
+      }
+    }
+
     return ok(res, {
       final_action: result.finalAction,
       tool_calls: result.toolCalls,
       loops: result.loops,
+      degraded, // não-nulo quando a IA falhou e o humano foi acionado
+      plan_limit: planLimit,
       // Classificação do turno — transparência de custo
       turn: {
         complexity: turn.complexity,
@@ -173,6 +227,17 @@ export default async function handler(req, res) {
     });
   } catch (e) {
     console.error("cognitive/react error:", e);
+    // Mesmo num erro inesperado do endpoint, tenta degradar graciosamente
+    try {
+      const { lead_id, client_id } = req.body || {};
+      if (lead_id) {
+        await executeTool(
+          "escalate_to_human",
+          { lead_id, reason: `[ERRO CRÍTICO] ${e.message}`, urgency: "urgent" },
+          { lead_id, client_id }
+        );
+      }
+    } catch (_) { /* noop — já estamos no caminho de erro */ }
     return fail(res, "REACT_FAILED", 500, { detail: e.message });
   }
 }
